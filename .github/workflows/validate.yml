@@ -14,5 +14,25 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: npm run check
-      - run: npm run build
+      - name: Type check
+        id: typecheck
+        continue-on-error: true
+        run: npm run check > svelte-check.log 2>&1
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm run build > build.log 2>&1
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs
+          path: |
+            svelte-check.log
+            build.log
+      - name: Report validation result
+        if: steps.typecheck.outcome != 'success' || steps.build.outcome != 'success'
+        run: |
+          cat svelte-check.log
+          cat build.log
+          exit 1
