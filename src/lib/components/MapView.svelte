@@ -1,6 +1,12 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import maplibregl, { Map as MapLibreMap, Marker, type GeoJSONSource, type StyleSpecification } from 'maplibre-gl';
+  import maplibregl, {
+    LngLatBounds,
+    Map as MapLibreMap,
+    Marker,
+    type GeoJSONSource,
+    type StyleSpecification
+  } from 'maplibre-gl';
   import { Protocol } from 'pmtiles';
   import type { FeatureCollection, LineString, Point } from 'geojson';
   import type { PositionFix, ProjectSegment, StructurePoint } from '../types';
@@ -20,7 +26,10 @@
   let container: HTMLDivElement;
   let map: MapLibreMap | null = null;
   let marker: Marker | null = null;
+  let resizeObserver: ResizeObserver | null = null;
   let loaded = false;
+  let lastFitSignature = '';
+  let centeredOnLivePosition = false;
   const protocol = new Protocol();
 
   const blankStyle: StyleSpecification = {
@@ -67,6 +76,48 @@
         }
       }))
     };
+  }
+
+  function dataSignature(): string {
+    return [
+      segments.length,
+      structures.length,
+      segments[0]?.id ?? '',
+      segments.at(-1)?.id ?? '',
+      structures[0]?.id ?? '',
+      structures.at(-1)?.id ?? ''
+    ].join(':');
+  }
+
+  function fitOperationalData(force = false): void {
+    if (!map || !loaded || (segments.length === 0 && structures.length === 0)) return;
+
+    const signature = dataSignature();
+    if (!force && signature === lastFitSignature) return;
+
+    const bounds = new LngLatBounds();
+    for (const segment of segments) {
+      for (const coordinate of segment.geometry.coordinates) {
+        bounds.extend([coordinate[0], coordinate[1]]);
+      }
+    }
+    for (const structure of structures) bounds.extend(structure.coordinates);
+
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds, {
+        padding: { top: 72, right: 56, bottom: 72, left: 56 },
+        maxZoom: 14,
+        duration: 0
+      });
+      lastFitSignature = signature;
+    }
+  }
+
+  function resizeMap(): void {
+    window.requestAnimationFrame(() => {
+      map?.resize();
+      fitOperationalData();
+    });
   }
 
   function addOperationalLayers(): void {
@@ -144,12 +195,19 @@
     if (!position) {
       marker?.remove();
       marker = null;
+      centeredOnLivePosition = false;
       return;
     }
+
     const element = document.createElement('div');
     element.className = position.source === 'gps' ? 'position-marker live' : 'position-marker manual';
     marker?.remove();
     marker = new Marker({ element }).setLngLat([position.longitude, position.latitude]).addTo(map);
+
+    if (position.source === 'gps' && !centeredOnLivePosition) {
+      map.easeTo({ center: [position.longitude, position.latitude], zoom: Math.max(map.getZoom(), 15), duration: 500 });
+      centeredOnLivePosition = true;
+    }
   }
 
   onMount(() => {
@@ -163,11 +221,17 @@
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+
+    resizeObserver = new ResizeObserver(resizeMap);
+    resizeObserver.observe(container);
+
     map.on('load', () => {
       loaded = true;
       addOperationalLayers();
       configurePmtilesBasemap();
       updatePosition();
+      resizeMap();
+      fitOperationalData(true);
     });
     map.on('click', (event) => {
       if (manualPlacement) {
@@ -178,14 +242,17 @@
 
   $: if (loaded && map?.getSource('segments')) {
     (map.getSource('segments') as GeoJSONSource).setData(segmentCollection());
+    fitOperationalData();
   }
   $: if (loaded && map?.getSource('structures')) {
     (map.getSource('structures') as GeoJSONSource).setData(structureCollection());
+    fitOperationalData();
   }
   $: if (loaded) updatePosition();
   $: if (loaded) configurePmtilesBasemap();
 
   onDestroy(() => {
+    resizeObserver?.disconnect();
     marker?.remove();
     map?.remove();
     maplibregl.removeProtocol('pmtiles');
