@@ -1,9 +1,11 @@
 name: Deploy mobile preview
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
-      - agent/initial-local-first-mapping-app
       - main
   workflow_dispatch:
 
