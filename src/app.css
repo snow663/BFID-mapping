@@ -100,6 +100,39 @@ h2 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-
 .map { position: absolute; inset: 0; min-width: 0; min-height: 0; }
 .map.manual-placement { cursor: crosshair; }
 .map-pointer { cursor: pointer; }
+.map-loading,
+.map-diagnostic {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: min(520px, calc(100% - 2rem));
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid #486556;
+  background: rgba(8, 20, 15, 0.96);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.35);
+  text-align: left;
+}
+.map-loading { text-align: center; }
+.map-loading span,
+.map-diagnostic span,
+.map-loading small,
+.map-diagnostic small { color: #b6c6bc; line-height: 1.35; }
+.map-diagnostic { border-color: #a96854; }
+.map-diagnostic strong { color: #ffd0c2; }
+.map-diagnostic code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  padding: 0.65rem;
+  border-radius: 6px;
+  background: #221613;
+  color: #ffd5ca;
+  font-size: 0.78rem;
+}
 .legend {
   position: absolute;
   left: 0.75rem;
