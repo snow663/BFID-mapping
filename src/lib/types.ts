@@ -1,3 +1,5 @@
+import type { LineString } from 'geojson';
+
 export type TravelStatus =
   | 'unknown'
   | 'visually-likely'
@@ -24,7 +26,7 @@ export interface ProjectSegment {
   mowStatus: MowStatus;
   lastVerifiedAt?: string;
   notes?: string;
-  geometry: GeoJSON.LineString;
+  geometry: LineString;
   demo?: boolean;
 }
 
