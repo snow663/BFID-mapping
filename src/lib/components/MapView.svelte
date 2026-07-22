@@ -27,9 +27,12 @@
   let map: MapLibreMap | null = null;
   let marker: Marker | null = null;
   let resizeObserver: ResizeObserver | null = null;
+  let startupTimer: number | null = null;
   let loaded = false;
   let lastFitSignature = '';
   let centeredOnLivePosition = false;
+  let renderError = '';
+  let webglStatus = 'Testing graphics support…';
   const protocol = new Protocol();
 
   const blankStyle: StyleSpecification = {
@@ -210,34 +213,84 @@
     }
   }
 
+  function hasGraphicsContext(contextType: 'webgl2' | 'webgl'): boolean {
+    try {
+      const canvas = document.createElement('canvas');
+      return Boolean(canvas.getContext(contextType, { failIfMajorPerformanceCaveat: false }));
+    } catch {
+      return false;
+    }
+  }
+
+  function errorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown map-renderer error.';
+    }
+  }
+
   onMount(() => {
-    maplibregl.addProtocol('pmtiles', protocol.tile);
-    map = new MapLibreMap({
-      container,
-      style: blankStyle,
-      center: [-103.409, 44.7105],
-      zoom: 12.5,
-      attributionControl: false
-    });
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+    const webgl2 = hasGraphicsContext('webgl2');
+    const webgl1 = hasGraphicsContext('webgl');
+    webglStatus = `WebGL 2: ${webgl2 ? 'yes' : 'no'} · WebGL 1: ${webgl1 ? 'yes' : 'no'}`;
 
-    resizeObserver = new ResizeObserver(resizeMap);
-    resizeObserver.observe(container);
+    if (!webgl2 && !webgl1) {
+      renderError = 'This browser did not provide a usable WebGL graphics context.';
+      return;
+    }
 
-    map.on('load', () => {
-      loaded = true;
-      addOperationalLayers();
-      configurePmtilesBasemap();
-      updatePosition();
-      resizeMap();
-      fitOperationalData(true);
-    });
-    map.on('click', (event) => {
-      if (manualPlacement) {
-        dispatch('manualPosition', { longitude: event.lngLat.lng, latitude: event.lngLat.lat });
-      }
-    });
+    try {
+      maplibregl.addProtocol('pmtiles', protocol.tile);
+      map = new MapLibreMap({
+        container,
+        style: blankStyle,
+        center: [-103.409, 44.7105],
+        zoom: 12.5,
+        attributionControl: false,
+        canvasContextAttributes: {
+          contextType: webgl2 ? 'webgl2' : 'webgl',
+          powerPreference: 'low-power',
+          failIfMajorPerformanceCaveat: false,
+          antialias: false,
+          preserveDrawingBuffer: false
+        }
+      });
+      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+      map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+
+      resizeObserver = new ResizeObserver(resizeMap);
+      resizeObserver.observe(container);
+
+      startupTimer = window.setTimeout(() => {
+        if (!loaded) renderError = 'MapLibre did not reach its load event within 8 seconds.';
+      }, 8000);
+
+      map.on('error', (event) => {
+        if (!loaded) renderError = errorMessage(event.error);
+      });
+      map.on('load', () => {
+        loaded = true;
+        renderError = '';
+        if (startupTimer !== null) window.clearTimeout(startupTimer);
+        startupTimer = null;
+        webglStatus = `${webglStatus} · Map loaded`;
+        addOperationalLayers();
+        configurePmtilesBasemap();
+        updatePosition();
+        resizeMap();
+        fitOperationalData(true);
+      });
+      map.on('click', (event) => {
+        if (manualPlacement) {
+          dispatch('manualPosition', { longitude: event.lngLat.lng, latitude: event.lngLat.lat });
+        }
+      });
+    } catch (error) {
+      renderError = errorMessage(error);
+    }
   });
 
   $: if (loaded && map?.getSource('segments')) {
@@ -252,6 +305,7 @@
   $: if (loaded) configurePmtilesBasemap();
 
   onDestroy(() => {
+    if (startupTimer !== null) window.clearTimeout(startupTimer);
     resizeObserver?.disconnect();
     marker?.remove();
     map?.remove();
@@ -260,3 +314,19 @@
 </script>
 
 <div class:manual-placement={manualPlacement} class="map" bind:this={container}></div>
+
+{#if renderError}
+  <div class="map-diagnostic" role="alert">
+    <strong>Map renderer did not start</strong>
+    <span>{segments.length} demo segments and {structures.length} structures are loaded.</span>
+    <span>{webglStatus}</span>
+    <code>{renderError}</code>
+    <small>Send a screenshot of this message; it identifies the renderer failure.</small>
+  </div>
+{:else if !loaded}
+  <div class="map-loading">
+    <strong>Starting map…</strong>
+    <span>{segments.length} demo segments loaded</span>
+    <small>{webglStatus}</small>
+  </div>
+{/if}
