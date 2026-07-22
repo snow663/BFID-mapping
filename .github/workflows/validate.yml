@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
 
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
 jobs:
   frontend:
     runs-on: ubuntu-latest
@@ -16,3 +21,59 @@ jobs:
       - run: npm install
       - run: npm run check
       - run: npm run build
+
+  preview-status:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: frontend
+    steps:
+      - name: Wait for Pages preview and report status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- bfid-mobile-preview -->';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const headSha = context.payload.pull_request.head.sha;
+            const branch = context.payload.pull_request.head.ref;
+            const deadline = Date.now() + 180000;
+            let run;
+
+            while (Date.now() < deadline) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'pages.yml',
+                branch,
+                event: 'push',
+                per_page: 20
+              });
+              run = response.data.workflow_runs.find((candidate) => candidate.head_sha === headSha);
+              if (run?.status === 'completed') break;
+              await new Promise((resolve) => setTimeout(resolve, 10000));
+            }
+
+            let body;
+            if (!run) {
+              body = `${marker}\nNo Pages deployment run was found for commit ${headSha.slice(0, 7)}.`;
+            } else if (run.status !== 'completed') {
+              body = `${marker}\nPages deployment is still ${run.status}: ${run.html_url}`;
+            } else if (run.conclusion === 'success') {
+              body = `${marker}\nMobile preview is live: https://snow663.github.io/BFID-mapping/`;
+            } else {
+              body = `${marker}\nMobile preview deployment ${run.conclusion}: ${run.html_url}`;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+            const prior = comments.find((comment) => comment.body?.includes(marker));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
