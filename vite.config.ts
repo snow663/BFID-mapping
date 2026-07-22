@@ -2,7 +2,11 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const isGitHubPages = process.env.GITHUB_PAGES === 'true';
+const base = isGitHubPages ? '/BFID-mapping/' : './';
+
 export default defineConfig({
+  base,
   plugins: [
     svelte(),
     VitePWA({
@@ -17,6 +21,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'any',
         start_url: './',
+        scope: './',
         icons: [
           {
             src: 'icon.svg',
@@ -27,7 +32,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        navigateFallback: 'index.html',
+        navigateFallback: isGitHubPages ? '/BFID-mapping/index.html' : 'index.html',
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024
       }
