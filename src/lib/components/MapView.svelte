@@ -2,6 +2,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import maplibregl, { Map as MapLibreMap, Marker, type GeoJSONSource, type StyleSpecification } from 'maplibre-gl';
   import { Protocol } from 'pmtiles';
+  import type { FeatureCollection, LineString, Point } from 'geojson';
   import type { PositionFix, ProjectSegment, StructurePoint } from '../types';
 
   export let segments: ProjectSegment[] = [];
@@ -34,7 +35,7 @@
     ]
   };
 
-  function segmentCollection(): GeoJSON.FeatureCollection<GeoJSON.LineString> {
+  function segmentCollection(): FeatureCollection<LineString> {
     return {
       type: 'FeatureCollection',
       features: segments.map((segment) => ({
@@ -52,7 +53,7 @@
     };
   }
 
-  function structureCollection(): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  function structureCollection(): FeatureCollection<Point> {
     return {
       type: 'FeatureCollection',
       features: structures.map((structure) => ({
