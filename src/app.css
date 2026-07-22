@@ -1,0 +1,95 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #edf4ef;
+  background: #091611;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, input, select { font: inherit; }
+button, select, input {
+  border: 1px solid #395246;
+  border-radius: 8px;
+  background: #172820;
+  color: #edf4ef;
+  min-height: 42px;
+}
+button { cursor: pointer; padding: 0.6rem 0.75rem; }
+button:hover, button.active { background: #28543e; border-color: #69a981; }
+button.danger { background: #6a2e2e; border-color: #b85b5b; }
+input, select { width: 100%; padding: 0.55rem 0.65rem; }
+label { display: grid; gap: 0.35rem; color: #c4d2c9; font-size: 0.86rem; }
+h2 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; color: #b8cbbf; }
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  grid-template-rows: 58px 1fr;
+  width: 100%;
+  height: 100%;
+}
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1rem;
+  background: #102b1f;
+  border-bottom: 1px solid #385044;
+  z-index: 3;
+}
+.topbar strong { font-size: 1.05rem; }
+.subtitle { margin-left: 0.8rem; color: #a9bdb1; font-size: 0.82rem; }
+.status-pill { padding: 0.4rem 0.65rem; border-radius: 999px; background: #1a3b2b; color: #cce1d4; font-size: 0.8rem; }
+.status-pill.recording { background: #743737; color: #fff; }
+.sidebar { overflow-y: auto; padding: 0.9rem; background: #0e1d17; border-right: 1px solid #30463b; }
+.sidebar section { padding: 0.85rem 0; border-bottom: 1px solid #273b31; display: grid; gap: 0.7rem; }
+.button-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; }
+.button-grid.two { grid-template-columns: repeat(2, 1fr); }
+.wide { width: 100%; }
+.hint, .notes { color: #9fb0a6; font-size: 0.8rem; line-height: 1.4; margin: 0; }
+.segment-card { display: grid; gap: 0.25rem; padding: 0.65rem; border: 1px solid #3b5447; border-radius: 8px; background: #14251d; }
+.segment-card code { color: #8ec2df; font-size: 0.76rem; }
+.segment-card span { color: #acbcb2; font-size: 0.8rem; }
+.demo-warning { color: #f0bd65 !important; font-weight: 700; }
+.map-panel { position: relative; min-width: 0; min-height: 0; }
+.map { position: absolute; inset: 0; }
+.map.manual-placement { cursor: crosshair; }
+.map-pointer { cursor: pointer; }
+.legend {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(9, 22, 17, 0.88);
+  border: 1px solid #355044;
+  font-size: 0.75rem;
+}
+.legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.legend i { width: 18px; height: 4px; border-radius: 3px; display: inline-block; }
+.legend .verified { background: #43c270; }
+.legend .unknown { background: #aeb7b1; }
+.legend .blocked { background: #ef5b5b; }
+.legend .likely { background: #5bc0de; }
+.notification { position: absolute; right: 0.8rem; bottom: 0.8rem; z-index: 5; max-width: 360px; background: #102b1f; border: 1px solid #5d8c72; border-radius: 8px; padding: 0.7rem 0.85rem; }
+.position-marker { width: 22px; height: 22px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.45); }
+.position-marker.live { background: #2f98dd; }
+.position-marker.manual { background: #eea33b; border-radius: 2px; transform: rotate(45deg); }
+.hidden-input { display: none; }
+
+@media (max-width: 760px) {
+  .app-shell { grid-template-columns: 1fr; grid-template-rows: 52px minmax(0, 1fr) minmax(220px, 42vh); }
+  .topbar { grid-row: 1; }
+  .map-panel { grid-row: 2; }
+  .sidebar { grid-row: 3; border-right: 0; border-top: 1px solid #30463b; }
+  .subtitle { display: none; }
+  .legend { max-width: calc(100% - 1.5rem); }
+}
