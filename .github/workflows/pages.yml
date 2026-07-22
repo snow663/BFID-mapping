@@ -3,7 +3,6 @@ name: Deploy mobile preview
 on:
   push:
     branches:
-      - agent/initial-local-first-mapping-app
       - main
   workflow_dispatch:
 
@@ -13,7 +12,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-production
   cancel-in-progress: true
 
 jobs:
