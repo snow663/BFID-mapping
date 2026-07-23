@@ -5,39 +5,38 @@ import { VitePWA } from 'vite-plugin-pwa';
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
 const base = isGitHubPages ? '/BFID-mapping/' : './';
 
+const pwaPlugin = VitePWA({
+  registerType: 'autoUpdate',
+  includeAssets: ['icon.svg'],
+  manifest: {
+    name: 'BFID Mapping',
+    short_name: 'BFID Map',
+    description: 'Local-first field mapping for BFID mowing and access work',
+    theme_color: '#102b1f',
+    background_color: '#091611',
+    display: 'standalone',
+    orientation: 'any',
+    start_url: './',
+    scope: './',
+    icons: [
+      {
+        src: 'icon.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
+        purpose: 'any maskable'
+      }
+    ]
+  },
+  workbox: {
+    navigateFallback: 'index.html',
+    globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+    maximumFileSizeToCacheInBytes: 8 * 1024 * 1024
+  }
+});
+
 export default defineConfig({
   base,
-  plugins: [
-    svelte(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
-      manifest: {
-        name: 'BFID Mapping',
-        short_name: 'BFID Map',
-        description: 'Local-first field mapping for BFID mowing and access work',
-        theme_color: '#102b1f',
-        background_color: '#091611',
-        display: 'standalone',
-        orientation: 'any',
-        start_url: './',
-        scope: './',
-        icons: [
-          {
-            src: 'icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any maskable'
-          }
-        ]
-      },
-      workbox: {
-        navigateFallback: isGitHubPages ? '/BFID-mapping/index.html' : 'index.html',
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024
-      }
-    })
-  ],
+  plugins: [svelte(), ...(!isGitHubPages ? [pwaPlugin] : [])],
   clearScreen: false,
   server: {
     port: 1420,
