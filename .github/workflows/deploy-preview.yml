@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: agent/initial-local-first-mapping-app
+      - name: Stamp feature build ID
+        run: echo "VITE_BUILD_ID=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -87,4 +89,4 @@ jobs:
               sha
             });
 
-# Preview target: caefe4f550c8147a03eb00e6ae519ec50add59c5
+# Preview target: 3ec16fe9833737734d39200706ae7b033e9fd3ff
