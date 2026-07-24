@@ -39,10 +39,13 @@
   let canvasStatus = 'canvas not created';
   const protocol = new Protocol();
 
-  function segmentCollection(): FeatureCollection<LineString> {
+  function segmentCollection(
+    currentSegments: ProjectSegment[] = segments,
+    currentSelectedId: string | null = selectedSegmentId
+  ): FeatureCollection<LineString> {
     return {
       type: 'FeatureCollection',
-      features: segments.map((segment) => ({
+      features: currentSegments.map((segment) => ({
         type: 'Feature',
         id: segment.id,
         geometry: segment.geometry,
@@ -51,16 +54,16 @@
           name: segment.name,
           travelStatus: segment.travelStatus,
           mowStatus: segment.mowStatus,
-          selected: segment.id === selectedSegmentId
+          selected: segment.id === currentSelectedId
         }
       }))
     };
   }
 
-  function structureCollection(): FeatureCollection<Point> {
+  function structureCollection(currentStructures: StructurePoint[] = structures): FeatureCollection<Point> {
     return {
       type: 'FeatureCollection',
-      features: structures.map((structure) => ({
+      features: currentStructures.map((structure) => ({
         type: 'Feature',
         id: structure.id,
         geometry: { type: 'Point', coordinates: structure.coordinates },
@@ -156,14 +159,14 @@
     };
   }
 
-  function dataSignature(): string {
+  function dataSignature(currentSegments: ProjectSegment[], currentStructures: StructurePoint[]): string {
     return [
-      segments.length,
-      structures.length,
-      segments[0]?.id ?? '',
-      segments.at(-1)?.id ?? '',
-      structures[0]?.id ?? '',
-      structures.at(-1)?.id ?? ''
+      currentSegments.length,
+      currentStructures.length,
+      currentSegments[0]?.id ?? '',
+      currentSegments.at(-1)?.id ?? '',
+      currentStructures[0]?.id ?? '',
+      currentStructures.at(-1)?.id ?? ''
     ].join(':');
   }
 
@@ -178,17 +181,22 @@
     canvasStatus = `buffer ${canvas.width}×${canvas.height} · css ${Math.round(bounds.width)}×${Math.round(bounds.height)}`;
   }
 
-  function fitOperationalData(force = false): void {
-    if (!map || !loaded || (segments.length === 0 && structures.length === 0)) return;
+  function fitOperationalData(
+    currentSegments: ProjectSegment[] = segments,
+    currentStructures: StructurePoint[] = structures,
+    force = false
+  ): void {
+    if (!map || !loaded || position?.source === 'gps') return;
+    if (currentSegments.length === 0 && currentStructures.length === 0) return;
 
-    const signature = dataSignature();
+    const signature = dataSignature(currentSegments, currentStructures);
     if (!force && signature === lastFitSignature) return;
 
     const bounds = new LngLatBounds();
-    for (const segment of segments) {
+    for (const segment of currentSegments) {
       for (const coordinate of segment.geometry.coordinates) bounds.extend([coordinate[0], coordinate[1]]);
     }
-    for (const structure of structures) bounds.extend(structure.coordinates);
+    for (const structure of currentStructures) bounds.extend(structure.coordinates);
 
     if (!bounds.isEmpty()) {
       map.fitBounds(bounds, {
@@ -202,27 +210,52 @@
     }
   }
 
-  function updateSources(): void {
+  function updateSources(
+    currentSegments: ProjectSegment[],
+    currentStructures: StructurePoint[],
+    currentSelectedId: string | null
+  ): void {
     if (!map || !loaded) return;
 
     const segmentSource = map.getSource('segments') as GeoJSONSource | undefined;
     const structureSource = map.getSource('structures') as GeoJSONSource | undefined;
-    segmentSource?.setData(segmentCollection());
-    structureSource?.setData(structureCollection());
+    segmentSource?.setData(segmentCollection(currentSegments, currentSelectedId));
+    structureSource?.setData(structureCollection(currentStructures));
+  }
+
+  function centerOnLivePosition(fix: PositionFix, animateFirstFix = false): void {
+    if (!map || fix.source !== 'gps') return;
+
+    const camera = {
+      center: [fix.longitude, fix.latitude] as [number, number],
+      zoom: Math.max(map.getZoom(), 15)
+    };
+
+    if (animateFirstFix && !centeredOnLivePosition) {
+      map.easeTo({ ...camera, duration: 500 });
+    } else {
+      map.jumpTo(camera);
+    }
+    centeredOnLivePosition = true;
   }
 
   function resizeMap(forceFit = false): void {
     window.requestAnimationFrame(() => {
       map?.resize();
       updateCanvasStatus();
-      fitOperationalData(forceFit);
+
+      if (position?.source === 'gps') {
+        centerOnLivePosition(position);
+      } else {
+        fitOperationalData(segments, structures, forceFit);
+      }
     });
   }
 
-  function configurePmtilesBasemap(): void {
+  function configurePmtilesBasemap(requestedValue: string): void {
     if (!map || !loaded) return;
 
-    const requestedUrl = rasterPmtilesUrl.trim();
+    const requestedUrl = requestedValue.trim();
     if (requestedUrl === configuredBasemapUrl) return;
 
     try {
@@ -247,23 +280,35 @@
     }
   }
 
-  function updatePosition(): void {
+  function updatePosition(fix: PositionFix | null): void {
     if (!map) return;
-    if (!position) {
+
+    if (!fix) {
+      const wasFollowingGps = centeredOnLivePosition;
       marker?.remove();
       marker = null;
       centeredOnLivePosition = false;
+
+      if (wasFollowingGps) {
+        lastFitSignature = '';
+        fitOperationalData(segments, structures, true);
+      }
       return;
     }
 
-    const element = document.createElement('div');
-    element.className = position.source === 'gps' ? 'position-marker live' : 'position-marker manual';
-    marker?.remove();
-    marker = new Marker({ element }).setLngLat([position.longitude, position.latitude]).addTo(map);
+    if (!marker) {
+      const element = document.createElement('div');
+      marker = new Marker({ element }).setLngLat([fix.longitude, fix.latitude]).addTo(map);
+    }
 
-    if (position.source === 'gps' && !centeredOnLivePosition) {
-      map.easeTo({ center: [position.longitude, position.latitude], zoom: Math.max(map.getZoom(), 15), duration: 500 });
-      centeredOnLivePosition = true;
+    const element = marker.getElement();
+    element.className = fix.source === 'gps' ? 'position-marker live' : 'position-marker manual';
+    marker.setLngLat([fix.longitude, fix.latitude]);
+
+    if (fix.source === 'gps') {
+      centerOnLivePosition(fix, true);
+    } else {
+      centeredOnLivePosition = false;
     }
   }
 
@@ -345,27 +390,18 @@
         startupTimer = null;
 
         registerSegmentEvents();
-        updateSources();
-        configurePmtilesBasemap();
-        updatePosition();
+        updateSources(segments, structures, selectedSegmentId);
+        configurePmtilesBasemap(rasterPmtilesUrl);
+        updatePosition(position);
         resizeMap(true);
 
         postLoadTimers.push(
-          window.setTimeout(() => {
-            mapStage = 'post-load resize';
-            resizeMap(true);
-          }, 250),
-          window.setTimeout(() => {
-            mapStage = 'one-second render check';
-            resizeMap(true);
-          }, 1000)
+          window.setTimeout(() => resizeMap(true), 250),
+          window.setTimeout(() => resizeMap(true), 1000)
         );
       });
 
-      map.on('idle', () => {
-        if (!renderError) mapStage = 'map idle';
-        updateCanvasStatus();
-      });
+      map.on('idle', updateCanvasStatus);
 
       map.on('click', (event) => {
         if (manualPlacement) {
@@ -380,11 +416,11 @@
   });
 
   $: if (loaded) {
-    updateSources();
-    fitOperationalData();
+    updateSources(segments, structures, selectedSegmentId);
+    if (position?.source !== 'gps') fitOperationalData(segments, structures);
   }
-  $: if (loaded) updatePosition();
-  $: if (loaded) configurePmtilesBasemap();
+  $: if (loaded && position !== undefined) updatePosition(position);
+  $: if (loaded && rasterPmtilesUrl !== undefined) configurePmtilesBasemap(rasterPmtilesUrl);
 
   onDestroy(() => {
     if (startupTimer !== null) window.clearTimeout(startupTimer);
@@ -401,9 +437,11 @@
 
 <div class:manual-placement={manualPlacement} class="map" bind:this={container}></div>
 
-<div class:failed={Boolean(renderError)} class="map-stage" role={renderError ? 'alert' : 'status'}>
-  <strong>{mapStage}</strong>
-  <span>{segments.length} segments · {structures.length} structures</span>
-  <small>{canvasStatus}</small>
-  {#if renderError}<code>{renderError}</code>{/if}
-</div>
+{#if renderError}
+  <div class="map-stage failed" role="alert">
+    <strong>{mapStage}</strong>
+    <span>{segments.length} segments · {structures.length} structures</span>
+    <small>{canvasStatus}</small>
+    <code>{renderError}</code>
+  </div>
+{/if}
