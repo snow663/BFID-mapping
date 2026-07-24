@@ -1,5 +1,4 @@
 import Dexie, { type EntityTable } from 'dexie';
-import { demoSegments, demoStructures } from './demo';
 import type { ProjectSegment, Ride, StructurePoint, TrackPoint, TrackSession } from './types';
 
 export interface SettingRecord {
@@ -37,13 +36,18 @@ class BFIDDatabase extends Dexie {
 
 export const db = new BFIDDatabase();
 
+/**
+ * Earlier scaffold builds inserted fictional geometry into IndexedDB.
+ * Remove only records explicitly marked as demo; preserve driven roads,
+ * imported project data, raw tracks, Rides, and user settings.
+ */
 export async function ensureSeedData(): Promise<void> {
-  if ((await db.segments.count()) === 0) {
-    await db.transaction('rw', db.segments, db.structures, async () => {
-      await db.segments.bulkPut(demoSegments);
-      await db.structures.bulkPut(demoStructures);
-    });
-  }
+  await db.transaction('rw', [db.segments, db.structures], async () => {
+    await Promise.all([
+      db.segments.filter((segment) => segment.demo === true).delete(),
+      db.structures.filter((structure) => structure.demo === true).delete()
+    ]);
+  });
 }
 
 export async function getSetting(key: string, fallback = ''): Promise<string> {
