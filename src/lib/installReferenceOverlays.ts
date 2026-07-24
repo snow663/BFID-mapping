@@ -5,125 +5,37 @@ const MAP_FLAG = '__bfidReferenceOverlaysScheduled';
 const STORAGE_KEY = 'bfid-map-layer-visibility-v1';
 const STYLE_ID = 'bfid-layer-menu-styles';
 
-type ArcGisGeometry = 'line' | 'polygon';
+const SD_ROADS_SERVICE =
+  'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer';
+const SD_CITIES_SERVICE =
+  'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Location_Cities/MapServer';
+const USGS_NHD_SERVICE =
+  'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer';
 
-function transparentRenderer(geometry: ArcGisGeometry): Record<string, unknown> {
-  if (geometry === 'polygon') {
-    return {
-      type: 'simple',
-      symbol: {
-        type: 'esriSFS',
-        style: 'esriSFSNull',
-        color: [0, 0, 0, 0],
-        outline: {
-          type: 'esriSLS',
-          style: 'esriSLSNull',
-          color: [0, 0, 0, 0],
-          width: 0
-        }
-      }
-    };
-  }
+type LayerKey = 'project' | 'structures' | 'builder' | 'roads' | 'hydrography' | 'places';
+type LayerVisibility = Record<LayerKey, boolean>;
+type GeometryKind = 'line' | 'polygon' | 'point';
 
-  return {
-    type: 'simple',
-    symbol: {
-      type: 'esriSLS',
-      style: 'esriSLSNull',
-      color: [0, 0, 0, 0],
-      width: 0
-    }
-  };
-}
+type LabelLayerSpec = {
+  id: number;
+  geometry: GeometryKind;
+  minScale: number;
+  maxScale: number;
+};
 
-function labelOnlyExportTiles(
-  serviceUrl: string,
-  layers: Array<{ id: number; geometry: ArcGisGeometry }>
-): string {
-  const dynamicLayers = layers.map(({ id, geometry }) => ({
-    id,
-    source: { type: 'mapLayer', mapLayerId: id },
-    drawingInfo: {
-      renderer: transparentRenderer(geometry),
-      showLabels: true
-    }
-  }));
-
-  return (
-    `${serviceUrl}/export?bbox={bbox-epsg-3857}` +
-    '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
-    '&format=png32&transparent=true' +
-    `&dynamicLayers=${encodeURIComponent(JSON.stringify(dynamicLayers))}` +
-    '&f=image'
-  );
-}
-
-const SD_ROAD_NAME_TILES = labelOnlyExportTiles(
-  'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer',
-  [
-    { id: 0, geometry: 'line' },
-    { id: 1, geometry: 'line' },
-    { id: 2, geometry: 'line' }
-  ]
-);
-
-const USGS_WATER_NAME_TILES = labelOnlyExportTiles(
-  'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer',
-  [
-    { id: 2, geometry: 'line' },
-    { id: 4, geometry: 'line' },
-    { id: 6, geometry: 'line' },
-    { id: 7, geometry: 'polygon' },
-    { id: 9, geometry: 'polygon' },
-    { id: 10, geometry: 'polygon' },
-    { id: 12, geometry: 'polygon' }
-  ]
-);
-
-const ESRI_PLACE_NAME_TILES =
-  'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
+type ArcGisLayerInfo = {
+  displayField?: string;
+  drawingInfo?: { labelingInfo?: Record<string, unknown>[] };
+};
 
 type ReferenceOverlay = {
   sourceId: string;
   layerId: string;
   tiles: string;
-  opacity: number;
-  minzoom: number;
-  maxzoom: number;
   attribution: string;
 };
 
-const overlays: ReferenceOverlay[] = [
-  {
-    sourceId: 'reference-hydrography',
-    layerId: 'reference-hydrography',
-    tiles: USGS_WATER_NAME_TILES,
-    opacity: 1,
-    minzoom: 9,
-    maxzoom: 19,
-    attribution: 'USGS National Hydrography Dataset'
-  },
-  {
-    sourceId: 'reference-road-labels',
-    layerId: 'reference-road-labels',
-    tiles: SD_ROAD_NAME_TILES,
-    opacity: 1,
-    minzoom: 8,
-    maxzoom: 19,
-    attribution: 'South Dakota DOT / SD BIT'
-  },
-  {
-    sourceId: 'reference-place-labels',
-    layerId: 'reference-place-labels',
-    tiles: ESRI_PLACE_NAME_TILES,
-    opacity: 1,
-    minzoom: 0,
-    maxzoom: 19,
-    attribution: 'Esri, HERE, Garmin, OpenStreetMap contributors, GIS user community'
-  }
-];
-
-const layerGroups = {
+const layerGroups: Record<LayerKey, readonly string[]> = {
   project: [
     'segments-casing',
     'segments-unknown',
@@ -139,10 +51,7 @@ const layerGroups = {
   roads: ['reference-road-labels'],
   hydrography: ['reference-hydrography'],
   places: ['reference-place-labels']
-} as const;
-
-type LayerKey = keyof typeof layerGroups;
-type LayerVisibility = Record<LayerKey, boolean>;
+};
 
 const defaultVisibility: LayerVisibility = {
   project: true,
@@ -157,10 +66,12 @@ const menuOptions: Array<{ key: LayerKey; label: string; detail: string }> = [
   { key: 'project', label: 'Mapped roads and canals', detail: 'Permanent BFID lines you create or import' },
   { key: 'structures', label: 'Structures and points', detail: 'Checks, boxes, gates, crossings and drop-ins' },
   { key: 'builder', label: 'Active recording line', detail: 'Yellow road-building trace while recording' },
-  { key: 'roads', label: 'Road names only', detail: 'Text labels without transportation linework' },
-  { key: 'hydrography', label: 'Water names only', detail: 'River, canal, ditch and water-body names without traces or fills' },
-  { key: 'places', label: 'Place names only', detail: 'Town, community and general location labels' }
+  { key: 'roads', label: 'Road names only', detail: 'Major names first; local road names appear when zoomed in' },
+  { key: 'hydrography', label: 'Water names only', detail: 'Major names first; local water names appear when zoomed in' },
+  { key: 'places', label: 'Place names only', detail: 'Town and community names without boundary linework' }
 ];
+
+const overlayPromise = buildOverlays();
 
 function loadVisibility(): LayerVisibility {
   try {
@@ -181,7 +92,7 @@ function saveVisibility(visibility: LayerVisibility): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(visibility));
   } catch {
-    // The controls still work for the current session if storage is unavailable.
+    // Visibility remains functional for the current session.
   }
 }
 
@@ -198,15 +109,193 @@ function applyVisibility(map: MapLibreMap, visibility: LayerVisibility): void {
   }
 }
 
-function addReferenceOverlays(map: MapLibreMap): void {
+function transparentRenderer(geometry: GeometryKind): Record<string, unknown> {
+  if (geometry === 'polygon') {
+    return {
+      type: 'simple',
+      symbol: {
+        type: 'esriSFS',
+        style: 'esriSFSNull',
+        color: [0, 0, 0, 0],
+        outline: { type: 'esriSLS', style: 'esriSLSNull', color: [0, 0, 0, 0], width: 0 }
+      }
+    };
+  }
+
+  if (geometry === 'point') {
+    return {
+      type: 'simple',
+      symbol: {
+        type: 'esriSMS',
+        style: 'esriSMSCircle',
+        color: [0, 0, 0, 0],
+        size: 0,
+        outline: { color: [0, 0, 0, 0], width: 0 }
+      }
+    };
+  }
+
+  return {
+    type: 'simple',
+    symbol: { type: 'esriSLS', style: 'esriSLSNull', color: [0, 0, 0, 0], width: 0 }
+  };
+}
+
+function textSymbol(color: [number, number, number, number]): Record<string, unknown> {
+  return {
+    type: 'esriTS',
+    color,
+    haloColor: [9, 18, 13, 235],
+    haloSize: 1.4,
+    horizontalAlignment: 'center',
+    verticalAlignment: 'baseline',
+    rightToLeft: false,
+    angle: 0,
+    xoffset: 0,
+    yoffset: 0,
+    kerning: true,
+    font: {
+      family: 'Arial',
+      size: 11,
+      style: 'normal',
+      weight: 'bold',
+      decoration: 'none'
+    }
+  };
+}
+
+function defaultPlacement(geometry: GeometryKind): string {
+  if (geometry === 'line') return 'esriServerLinePlacementCenterAlong';
+  if (geometry === 'polygon') return 'esriServerPolygonPlacementAlwaysHorizontal';
+  return 'esriServerPointLabelPlacementAboveCenter';
+}
+
+async function getLayerInfo(serviceUrl: string, id: number): Promise<ArcGisLayerInfo> {
+  const response = await fetch(`${serviceUrl}/${id}?f=json`);
+  if (!response.ok) throw new Error(`Label metadata ${response.status}`);
+  return (await response.json()) as ArcGisLayerInfo;
+}
+
+function normalizedLabelingInfo(
+  info: ArcGisLayerInfo,
+  spec: LabelLayerSpec,
+  color: [number, number, number, number]
+): Record<string, unknown>[] {
+  const original = info.drawingInfo?.labelingInfo ?? [];
+  const source = original.length
+    ? original
+    : [
+        {
+          labelExpression: info.displayField ? `[${info.displayField}]` : '',
+          labelPlacement: defaultPlacement(spec.geometry)
+        }
+      ];
+
+  return source
+    .filter((entry) => Boolean(entry.labelExpression || (entry.labelExpressionInfo as any)?.expression))
+    .map((entry) => ({
+      ...entry,
+      minScale: spec.minScale,
+      maxScale: spec.maxScale,
+      repeatLabel: false,
+      symbol: textSymbol(color)
+    }));
+}
+
+async function labelOnlyExportTiles(
+  serviceUrl: string,
+  specs: LabelLayerSpec[],
+  color: [number, number, number, number]
+): Promise<string> {
+  const layers = await Promise.all(
+    specs.map(async (spec) => {
+      const info = await getLayerInfo(serviceUrl, spec.id);
+      return {
+        id: spec.id,
+        source: { type: 'mapLayer', mapLayerId: spec.id },
+        minScale: spec.minScale,
+        maxScale: spec.maxScale,
+        drawingInfo: {
+          renderer: transparentRenderer(spec.geometry),
+          showLabels: true,
+          labelingInfo: normalizedLabelingInfo(info, spec, color)
+        }
+      };
+    })
+  );
+
+  return (
+    `${serviceUrl}/export?bbox={bbox-epsg-3857}` +
+    '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
+    '&format=png32&transparent=true' +
+    `&dynamicLayers=${encodeURIComponent(JSON.stringify(layers))}` +
+    '&f=image'
+  );
+}
+
+async function buildOverlays(): Promise<ReferenceOverlay[]> {
+  const [roads, water, places] = await Promise.all([
+    labelOnlyExportTiles(
+      SD_ROADS_SERVICE,
+      [
+        { id: 0, geometry: 'line', minScale: 2500000, maxScale: 0 },
+        { id: 1, geometry: 'line', minScale: 750000, maxScale: 0 },
+        { id: 2, geometry: 'line', minScale: 100000, maxScale: 0 }
+      ],
+      [245, 247, 245, 255]
+    ),
+    labelOnlyExportTiles(
+      USGS_NHD_SERVICE,
+      [
+        { id: 4, geometry: 'line', minScale: 1000000, maxScale: 80000 },
+        { id: 7, geometry: 'polygon', minScale: 1000000, maxScale: 80000 },
+        { id: 10, geometry: 'polygon', minScale: 1000000, maxScale: 80000 },
+        { id: 2, geometry: 'line', minScale: 120000, maxScale: 0 },
+        { id: 6, geometry: 'line', minScale: 120000, maxScale: 0 },
+        { id: 9, geometry: 'polygon', minScale: 120000, maxScale: 0 },
+        { id: 12, geometry: 'polygon', minScale: 120000, maxScale: 0 }
+      ],
+      [188, 232, 255, 255]
+    ),
+    labelOnlyExportTiles(
+      SD_CITIES_SERVICE,
+      [{ id: 0, geometry: 'point', minScale: 3000000, maxScale: 0 }],
+      [255, 239, 178, 255]
+    )
+  ]);
+
+  return [
+    {
+      sourceId: 'reference-hydrography',
+      layerId: 'reference-hydrography',
+      tiles: water,
+      attribution: 'USGS National Hydrography Dataset'
+    },
+    {
+      sourceId: 'reference-road-labels',
+      layerId: 'reference-road-labels',
+      tiles: roads,
+      attribution: 'South Dakota DOT / SD BIT'
+    },
+    {
+      sourceId: 'reference-place-labels',
+      layerId: 'reference-place-labels',
+      tiles: places,
+      attribution: 'South Dakota BIT'
+    }
+  ];
+}
+
+async function addReferenceOverlays(map: MapLibreMap): Promise<void> {
+  const overlays = await overlayPromise;
   for (const overlay of overlays) {
     if (!map.getSource(overlay.sourceId)) {
       map.addSource(overlay.sourceId, {
         type: 'raster',
         tiles: [overlay.tiles],
         tileSize: 256,
-        minzoom: overlay.minzoom,
-        maxzoom: overlay.maxzoom,
+        minzoom: 0,
+        maxzoom: 20,
         attribution: overlay.attribution
       });
     }
@@ -216,12 +305,7 @@ function addReferenceOverlays(map: MapLibreMap): void {
         id: overlay.layerId,
         type: 'raster',
         source: overlay.sourceId,
-        minzoom: overlay.minzoom,
-        maxzoom: overlay.maxzoom,
-        paint: {
-          'raster-opacity': overlay.opacity,
-          'raster-fade-duration': 0
-        }
+        paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
       });
     }
   }
@@ -326,7 +410,6 @@ class LayerMenuControl implements IControl {
     panel.append(heading);
 
     const inputs = new Map<LayerKey, HTMLInputElement>();
-
     const updateAll = (next: LayerVisibility): void => {
       this.visibility = next;
       saveVisibility(next);
@@ -337,7 +420,6 @@ class LayerMenuControl implements IControl {
     for (const option of menuOptions) {
       const label = document.createElement('label');
       label.className = 'bfid-layer-option';
-
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.checked = this.visibility[option.key];
@@ -373,7 +455,7 @@ class LayerMenuControl implements IControl {
 
     const note = document.createElement('div');
     note.className = 'bfid-layer-note';
-    note.textContent = 'Aerial, hillshade, slope and offline imagery are selected in the Map layers section below the map.';
+    note.textContent = 'All names use the same fixed-size type. Additional local names appear only as the map is zoomed in.';
     panel.append(note);
 
     button.addEventListener('click', () => {
@@ -397,12 +479,6 @@ class LayerMenuControl implements IControl {
   }
 }
 
-/**
- * MapView owns the MapLibre instance. Hooking the first control addition lets us
- * register one post-load callback without exposing the map globally. The delayed
- * callback runs after MapView installs the selected aerial/terrain layer, keeping
- * the name-only reference overlays above the imagery.
- */
 export function installReferenceOverlayPatch(): void {
   const prototype = MapLibreMap.prototype as any;
   if (Object.prototype.hasOwnProperty.call(prototype, PATCH_FLAG)) return;
@@ -415,13 +491,15 @@ export function installReferenceOverlayPatch(): void {
       mapWithFlag[MAP_FLAG] = true;
       this.once('load', () => {
         window.setTimeout(() => {
-          try {
-            addReferenceOverlays(this);
-            this.addControl(new LayerMenuControl(), 'top-right');
-            applyVisibility(this, loadVisibility());
-          } catch (error) {
-            console.warn('Could not add map name overlays or layer menu', error);
-          }
+          void (async () => {
+            try {
+              await addReferenceOverlays(this);
+              this.addControl(new LayerMenuControl(), 'top-right');
+              applyVisibility(this, loadVisibility());
+            } catch (error) {
+              console.warn('Could not add standardized map names or layer menu', error);
+            }
+          })();
         }, 0);
       });
     }
