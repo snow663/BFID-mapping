@@ -1,6 +1,7 @@
 import { Map as MapLibreMap } from 'maplibre-gl';
 
-const PATCH_FLAG = '__bfidReferenceOverlaysInstalled';
+const PATCH_FLAG = '__bfidReferenceOverlayPatchInstalled';
+const MAP_FLAG = '__bfidReferenceOverlaysScheduled';
 
 const SD_ROAD_LABEL_TILES =
   'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer/tile/{z}/{y}/{x}';
@@ -97,14 +98,14 @@ function addReferenceOverlays(map: MapLibreMap): void {
  */
 export function installReferenceOverlayPatch(): void {
   const prototype = MapLibreMap.prototype as any;
-  if (prototype[PATCH_FLAG]) return;
+  if (Object.prototype.hasOwnProperty.call(prototype, PATCH_FLAG)) return;
   prototype[PATCH_FLAG] = true;
 
   const originalAddControl = prototype.addControl as (...args: any[]) => MapLibreMap;
   prototype.addControl = function patchedAddControl(this: MapLibreMap, ...args: any[]): MapLibreMap {
     const mapWithFlag = this as any;
-    if (!mapWithFlag[PATCH_FLAG]) {
-      mapWithFlag[PATCH_FLAG] = true;
+    if (!Object.prototype.hasOwnProperty.call(mapWithFlag, MAP_FLAG)) {
+      mapWithFlag[MAP_FLAG] = true;
       this.once('load', () => {
         window.setTimeout(() => {
           try {
