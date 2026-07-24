@@ -1,10 +1,22 @@
 import { db } from './db';
-import type { AppBackup } from './types';
+import type { AppBackup, ProjectSegment, Ride, StructurePoint, TrackPoint, TrackSession } from './types';
+
+type LegacyBackup = {
+  schemaVersion?: number;
+  exportedAt?: string;
+  rides?: Ride[];
+  segments?: ProjectSegment[];
+  structures?: StructurePoint[];
+  trackSessions?: TrackSession[];
+  trackPoints?: TrackPoint[];
+  settings?: Array<{ key: string; value: string }>;
+};
 
 export async function createBackup(): Promise<AppBackup> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
+    rides: await db.rides.toArray(),
     segments: await db.segments.toArray(),
     structures: await db.structures.toArray(),
     trackSessions: await db.trackSessions.toArray(),
@@ -25,13 +37,14 @@ export async function downloadBackup(): Promise<void> {
 }
 
 export async function restoreBackup(file: File): Promise<void> {
-  const candidate = JSON.parse(await file.text()) as Partial<AppBackup>;
-  if (candidate.schemaVersion !== 1 || !Array.isArray(candidate.segments)) {
+  const candidate = JSON.parse(await file.text()) as LegacyBackup;
+  if (![1, 2].includes(candidate.schemaVersion ?? 0) || !Array.isArray(candidate.segments)) {
     throw new Error('This is not a supported BFID Mapping backup.');
   }
 
   await db.transaction(
     'rw',
+    db.rides,
     db.segments,
     db.structures,
     db.trackSessions,
@@ -39,12 +52,14 @@ export async function restoreBackup(file: File): Promise<void> {
     db.settings,
     async () => {
       await Promise.all([
+        db.rides.clear(),
         db.segments.clear(),
         db.structures.clear(),
         db.trackSessions.clear(),
         db.trackPoints.clear(),
         db.settings.clear()
       ]);
+      await db.rides.bulkPut(candidate.rides ?? []);
       await db.segments.bulkPut(candidate.segments ?? []);
       await db.structures.bulkPut(candidate.structures ?? []);
       await db.trackSessions.bulkPut(candidate.trackSessions ?? []);
