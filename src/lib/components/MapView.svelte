@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import maplibregl, {
+    AttributionControl,
     LngLatBounds,
     Map as MapLibreMap,
     Marker,
@@ -9,19 +10,31 @@
   } from 'maplibre-gl';
   import { Protocol } from 'pmtiles';
   import type { FeatureCollection, LineString, Point } from 'geojson';
-  import type { PositionFix, ProjectSegment, StructurePoint } from '../types';
+  import type { BaseLayerMode, PositionFix, ProjectSegment, StructurePoint } from '../types';
 
   export let segments: ProjectSegment[] = [];
   export let structures: StructurePoint[] = [];
   export let selectedSegmentId: string | null = null;
   export let position: PositionFix | null = null;
   export let manualPlacement = false;
+  export let baseLayerMode: BaseLayerMode = 'naip-hillshade';
+  export let hillshadeOpacity = 0.38;
   export let rasterPmtilesUrl = '';
+  export let builderTrackCoordinates: [number, number][] = [];
 
   const dispatch = createEventDispatcher<{
     selectSegment: { id: string };
     manualPosition: { longitude: number; latitude: number };
   }>();
+
+  const NAIP_TILES =
+    'https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image';
+  const HILLSHADE_RULE = encodeURIComponent(JSON.stringify({ rasterFunction: 'Hillshade Multidirectional' }));
+  const SLOPE_RULE = encodeURIComponent(JSON.stringify({ rasterFunction: 'Slope Map' }));
+  const THREE_DEP_BASE =
+    'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true';
+  const HILLSHADE_TILES = `${THREE_DEP_BASE}&renderingRule=${HILLSHADE_RULE}&f=image`;
+  const SLOPE_TILES = `${THREE_DEP_BASE}&renderingRule=${SLOPE_RULE}&f=image`;
 
   let container: HTMLDivElement;
   let map: MapLibreMap | null = null;
@@ -33,7 +46,7 @@
   let loaded = false;
   let lastFitSignature = '';
   let centeredOnLivePosition = false;
-  let configuredBasemapUrl = '';
+  let configuredReferenceSignature = '';
   let renderError = '';
   let mapStage = 'component mounted';
   let canvasStatus = 'canvas not created';
@@ -76,12 +89,29 @@
     };
   }
 
+  function builderTrackCollection(currentCoordinates: [number, number][]): FeatureCollection<LineString> {
+    return {
+      type: 'FeatureCollection',
+      features:
+        currentCoordinates.length >= 2
+          ? [
+              {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: currentCoordinates },
+                properties: {}
+              }
+            ]
+          : []
+    };
+  }
+
   function operationalStyle(): StyleSpecification {
     return {
       version: 8,
       sources: {
         segments: { type: 'geojson', data: segmentCollection() },
-        structures: { type: 'geojson', data: structureCollection() }
+        structures: { type: 'geojson', data: structureCollection() },
+        'builder-track': { type: 'geojson', data: builderTrackCollection(builderTrackCoordinates) }
       },
       layers: [
         {
@@ -154,6 +184,18 @@
             'circle-stroke-color': '#102019',
             'circle-stroke-width': 2
           }
+        },
+        {
+          id: 'builder-track-casing',
+          type: 'line',
+          source: 'builder-track',
+          paint: { 'line-color': '#191106', 'line-width': 9, 'line-opacity': 0.9 }
+        },
+        {
+          id: 'builder-track-line',
+          type: 'line',
+          source: 'builder-track',
+          paint: { 'line-color': '#ffd34d', 'line-width': 5 }
         }
       ]
     };
@@ -213,14 +255,17 @@
   function updateSources(
     currentSegments: ProjectSegment[],
     currentStructures: StructurePoint[],
-    currentSelectedId: string | null
+    currentSelectedId: string | null,
+    currentBuilderTrack: [number, number][]
   ): void {
     if (!map || !loaded) return;
 
     const segmentSource = map.getSource('segments') as GeoJSONSource | undefined;
     const structureSource = map.getSource('structures') as GeoJSONSource | undefined;
+    const builderTrackSource = map.getSource('builder-track') as GeoJSONSource | undefined;
     segmentSource?.setData(segmentCollection(currentSegments, currentSelectedId));
     structureSource?.setData(structureCollection(currentStructures));
+    builderTrackSource?.setData(builderTrackCollection(currentBuilderTrack));
   }
 
   function centerOnLivePosition(fix: PositionFix, animateFirstFix = false): void {
@@ -252,28 +297,89 @@
     });
   }
 
-  function configurePmtilesBasemap(requestedValue: string): void {
+  function removeReferenceLayers(): void {
+    if (!map) return;
+    for (const layerId of ['reference-terrain', 'reference-aerial', 'reference-custom']) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+    }
+    for (const sourceId of ['reference-terrain', 'reference-aerial', 'reference-custom']) {
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+    }
+  }
+
+  function addWebRaster(sourceId: string, layerId: string, tiles: string, opacity: number): void {
+    if (!map) return;
+    map.addSource(sourceId, {
+      type: 'raster',
+      tiles: [tiles],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 20
+    });
+    map.addLayer(
+      {
+        id: layerId,
+        type: 'raster',
+        source: sourceId,
+        paint: { 'raster-opacity': opacity, 'raster-fade-duration': 0 }
+      },
+      'segments-casing'
+    );
+  }
+
+  function configureReferenceLayers(
+    requestedMode: BaseLayerMode,
+    customPmtilesUrl: string,
+    requestedHillshadeOpacity: number
+  ): void {
     if (!map || !loaded) return;
 
-    const requestedUrl = requestedValue.trim();
-    if (requestedUrl === configuredBasemapUrl) return;
+    const opacity = Math.max(0, Math.min(1, requestedHillshadeOpacity));
+    const signature = `${requestedMode}|${customPmtilesUrl.trim()}|${opacity.toFixed(2)}`;
+    if (signature === configuredReferenceSignature) return;
 
     try {
-      if (map.getLayer('offline-raster')) map.removeLayer('offline-raster');
-      if (map.getSource('offline-raster')) map.removeSource('offline-raster');
-      configuredBasemapUrl = requestedUrl;
+      removeReferenceLayers();
+      configuredReferenceSignature = signature;
 
-      if (!requestedUrl) return;
+      if (requestedMode === 'none') return;
 
-      map.addSource('offline-raster', {
-        type: 'raster',
-        url: `pmtiles://${requestedUrl}`,
-        tileSize: 256
-      });
-      map.addLayer(
-        { id: 'offline-raster', type: 'raster', source: 'offline-raster', paint: { 'raster-opacity': 1 } },
-        'segments-casing'
-      );
+      if (requestedMode === 'custom') {
+        const requestedUrl = customPmtilesUrl.trim();
+        if (!requestedUrl) return;
+        map.addSource('reference-custom', {
+          type: 'raster',
+          url: `pmtiles://${requestedUrl}`,
+          tileSize: 256
+        });
+        map.addLayer(
+          {
+            id: 'reference-custom',
+            type: 'raster',
+            source: 'reference-custom',
+            paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
+          },
+          'segments-casing'
+        );
+        return;
+      }
+
+      if (requestedMode === 'naip' || requestedMode === 'naip-hillshade') {
+        addWebRaster('reference-aerial', 'reference-aerial', NAIP_TILES, 1);
+      }
+
+      if (requestedMode === 'hillshade' || requestedMode === 'naip-hillshade') {
+        addWebRaster(
+          'reference-terrain',
+          'reference-terrain',
+          HILLSHADE_TILES,
+          requestedMode === 'naip-hillshade' ? opacity : 1
+        );
+      }
+
+      if (requestedMode === 'slope') {
+        addWebRaster('reference-terrain', 'reference-terrain', SLOPE_TILES, 1);
+      }
     } catch (error) {
       renderError = `Basemap setup: ${errorMessage(error)}`;
       mapStage = 'basemap setup error';
@@ -359,6 +465,7 @@
 
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
       map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+      map.addControl(new AttributionControl({ compact: true }), 'bottom-right');
 
       mapCanvas = map.getCanvas();
       mapCanvas.addEventListener('webglcontextlost', handleContextLost, false);
@@ -377,9 +484,13 @@
       }, 8000);
 
       map.on('error', (event) => {
-        renderError = errorMessage(event.error);
-        mapStage = loaded ? 'runtime map error' : 'startup map error';
-        updateCanvasStatus();
+        if (!loaded) {
+          renderError = errorMessage(event.error);
+          mapStage = 'startup map error';
+          updateCanvasStatus();
+        } else {
+          console.warn('Map source or tile error', event.error);
+        }
       });
 
       map.on('load', () => {
@@ -390,8 +501,8 @@
         startupTimer = null;
 
         registerSegmentEvents();
-        updateSources(segments, structures, selectedSegmentId);
-        configurePmtilesBasemap(rasterPmtilesUrl);
+        updateSources(segments, structures, selectedSegmentId, builderTrackCoordinates);
+        configureReferenceLayers(baseLayerMode, rasterPmtilesUrl, hillshadeOpacity);
         updatePosition(position);
         resizeMap(true);
 
@@ -416,11 +527,11 @@
   });
 
   $: if (loaded) {
-    updateSources(segments, structures, selectedSegmentId);
+    updateSources(segments, structures, selectedSegmentId, builderTrackCoordinates);
     if (position?.source !== 'gps') fitOperationalData(segments, structures);
   }
   $: if (loaded && position !== undefined) updatePosition(position);
-  $: if (loaded && rasterPmtilesUrl !== undefined) configurePmtilesBasemap(rasterPmtilesUrl);
+  $: if (loaded) configureReferenceLayers(baseLayerMode, rasterPmtilesUrl, hillshadeOpacity);
 
   onDestroy(() => {
     if (startupTimer !== null) window.clearTimeout(startupTimer);
