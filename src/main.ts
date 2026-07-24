@@ -1,7 +1,8 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
-import './app.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import './app.css';
+import './map-overrides.css';
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
