@@ -10,8 +10,18 @@ export type TravelStatus =
 
 export type MowStatus = 'unmowed' | 'partial' | 'mowed' | 'needs-return' | 'skipped';
 export type Equipment = 'mower' | 'atv' | 'pickup' | 'tractor';
-export type Activity = 'travel' | 'mowing';
+export type Activity = 'travel' | 'mowing' | 'mapping';
 export type LocationMode = 'none' | 'manual' | 'live';
+export type BaseLayerMode = 'none' | 'naip' | 'hillshade' | 'slope' | 'naip-hillshade' | 'custom';
+export type CaptureMethod = 'imported' | 'driven' | 'manual';
+
+export interface Ride {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ProjectSegment {
   id: string;
@@ -27,6 +37,9 @@ export interface ProjectSegment {
   lastVerifiedAt?: string;
   notes?: string;
   geometry: LineString;
+  rideId?: string;
+  sourceTrackSessionId?: string;
+  captureMethod?: CaptureMethod;
   demo?: boolean;
 }
 
@@ -56,6 +69,8 @@ export interface TrackSession {
   equipment: Equipment;
   startedAt: string;
   endedAt?: string;
+  name?: string;
+  rideId?: string;
 }
 
 export interface TrackPoint extends PositionFix {
@@ -64,8 +79,9 @@ export interface TrackPoint extends PositionFix {
 }
 
 export interface AppBackup {
-  schemaVersion: 1;
+  schemaVersion: 2;
   exportedAt: string;
+  rides: Ride[];
   segments: ProjectSegment[];
   structures: StructurePoint[];
   trackSessions: TrackSession[];
