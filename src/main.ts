@@ -5,6 +5,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
+function releaseGraphicsContext(gl: WebGLRenderingContext | WebGL2RenderingContext): void {
+  try {
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch (error) {
+    console.warn('Could not explicitly release raw WebGL test context', error);
+  }
+}
+
 function runRawWebglTest(): string {
   const canvas = document.createElement('canvas');
   canvas.width = 8;
@@ -29,12 +37,20 @@ function runRawWebglTest(): string {
       const pixel = new Uint8Array(4);
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       const rendered = pixel[1] > 120 && pixel[3] > 200;
-      return `${type.toUpperCase()} ${rendered ? 'PASS' : 'CONTEXT-ONLY'}`;
+      const result = `${type.toUpperCase()} ${rendered ? 'PASS' : 'CONTEXT-ONLY'}`;
+
+      // The test must not leave an extra GPU context alive before MapLibre starts.
+      releaseGraphicsContext(gl);
+      canvas.width = 0;
+      canvas.height = 0;
+      return result;
     } catch (error) {
       console.warn(`Raw ${type} test failed`, error);
     }
   }
 
+  canvas.width = 0;
+  canvas.height = 0;
   return 'WEBGL FAIL';
 }
 
