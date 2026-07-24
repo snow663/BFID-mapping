@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.vite/
+.DS_Store
+*.log
+src-tauri/target/
+src-tauri/gen/
+.env
+.env.*
+public/maps/*.pmtiles
+public/maps/*.mbtiles
+public/maps/*.tif
+public/maps/*.tiff
+public/maps/*.laz
+public/maps/*.las
