@@ -2,12 +2,14 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import { installGpsFollowPatch } from './lib/installGpsFollow';
 import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
+import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
 
+installNhdServiceAdapter();
 installReferenceOverlayPatch();
 installGpsFollowPatch();
 installProjectImportPatch();
