@@ -44,12 +44,7 @@ export async function restoreBackup(file: File): Promise<void> {
 
   await db.transaction(
     'rw',
-    db.rides,
-    db.segments,
-    db.structures,
-    db.trackSessions,
-    db.trackPoints,
-    db.settings,
+    [db.rides, db.segments, db.structures, db.trackSessions, db.trackPoints, db.settings],
     async () => {
       await Promise.all([
         db.rides.clear(),
