@@ -133,6 +133,30 @@ h2 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-
   color: #ffd5ca;
   font-size: 0.78rem;
 }
+.map-stage {
+  position: absolute;
+  right: 0.65rem;
+  bottom: 2rem;
+  z-index: 6;
+  display: grid;
+  gap: 0.18rem;
+  max-width: min(360px, calc(100% - 1.3rem));
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #557565;
+  border-radius: 7px;
+  background: rgba(6, 17, 12, 0.92);
+  color: #d7e8dd;
+  font: 600 0.7rem/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: none;
+}
+.map-stage span,
+.map-stage small { color: #adbbb2; }
+.map-stage code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: #ffd2c5;
+}
+.map-stage.failed { border-color: #b46d56; background: rgba(36, 18, 13, 0.96); }
 .legend {
   position: absolute;
   left: 0.75rem;
@@ -180,6 +204,7 @@ h2 { margin: 0 0 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-
   .sidebar section { padding: 0.65rem 0; }
   .subtitle { display: none; }
   .legend { max-width: calc(100% - 1.5rem); font-size: 0.7rem; gap: 0.5rem; }
+  .map-stage { right: 0.5rem; bottom: 1.8rem; max-width: calc(100% - 1rem); font-size: 0.63rem; }
   button, select, input { min-height: 46px; }
 }
 
