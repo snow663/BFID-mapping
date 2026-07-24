@@ -1,6 +1,6 @@
 import { Map as MapLibreMap } from 'maplibre-gl';
 
-const PATCH_FLAG = Symbol.for('bfid.reference-overlays-installed');
+const PATCH_FLAG = '__bfidReferenceOverlaysInstalled';
 
 const SD_ROAD_LABEL_TILES =
   'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer/tile/{z}/{y}/{x}';
@@ -96,17 +96,13 @@ function addReferenceOverlays(map: MapLibreMap): void {
  * MapView installs the selected aerial/terrain layer, keeping these overlays on top.
  */
 export function installReferenceOverlayPatch(): void {
-  const prototype = MapLibreMap.prototype as MapLibreMap['prototype'] & {
-    [PATCH_FLAG]?: boolean;
-    addControl: (...args: unknown[]) => MapLibreMap;
-  };
-
+  const prototype = MapLibreMap.prototype as any;
   if (prototype[PATCH_FLAG]) return;
   prototype[PATCH_FLAG] = true;
 
-  const originalAddControl = prototype.addControl;
-  prototype.addControl = function patchedAddControl(this: MapLibreMap, ...args: unknown[]): MapLibreMap {
-    const mapWithFlag = this as MapLibreMap & { [PATCH_FLAG]?: boolean };
+  const originalAddControl = prototype.addControl as (...args: any[]) => MapLibreMap;
+  prototype.addControl = function patchedAddControl(this: MapLibreMap, ...args: any[]): MapLibreMap {
+    const mapWithFlag = this as any;
     if (!mapWithFlag[PATCH_FLAG]) {
       mapWithFlag[PATCH_FLAG] = true;
       this.once('load', () => {
