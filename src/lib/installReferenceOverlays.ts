@@ -5,12 +5,83 @@ const MAP_FLAG = '__bfidReferenceOverlaysScheduled';
 const STORAGE_KEY = 'bfid-map-layer-visibility-v1';
 const STYLE_ID = 'bfid-layer-menu-styles';
 
-const SD_ROAD_LABEL_TILES =
-  'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer/tile/{z}/{y}/{x}';
-const USGS_NHD_TILES =
-  'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show%3A2%2C4%2C6%2C7%2C9%2C10%2C12&f=image';
-const ESRI_PLACE_LABEL_TILES =
-  'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+type ArcGisGeometry = 'line' | 'polygon';
+
+function transparentRenderer(geometry: ArcGisGeometry): Record<string, unknown> {
+  if (geometry === 'polygon') {
+    return {
+      type: 'simple',
+      symbol: {
+        type: 'esriSFS',
+        style: 'esriSFSNull',
+        color: [0, 0, 0, 0],
+        outline: {
+          type: 'esriSLS',
+          style: 'esriSLSNull',
+          color: [0, 0, 0, 0],
+          width: 0
+        }
+      }
+    };
+  }
+
+  return {
+    type: 'simple',
+    symbol: {
+      type: 'esriSLS',
+      style: 'esriSLSNull',
+      color: [0, 0, 0, 0],
+      width: 0
+    }
+  };
+}
+
+function labelOnlyExportTiles(
+  serviceUrl: string,
+  layers: Array<{ id: number; geometry: ArcGisGeometry }>
+): string {
+  const dynamicLayers = layers.map(({ id, geometry }) => ({
+    id,
+    source: { type: 'mapLayer', mapLayerId: id },
+    drawingInfo: {
+      renderer: transparentRenderer(geometry),
+      showLabels: true
+    }
+  }));
+
+  return (
+    `${serviceUrl}/export?bbox={bbox-epsg-3857}` +
+    '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
+    '&format=png32&transparent=true' +
+    `&dynamicLayers=${encodeURIComponent(JSON.stringify(dynamicLayers))}` +
+    '&f=image'
+  );
+}
+
+const SD_ROAD_NAME_TILES = labelOnlyExportTiles(
+  'https://arcgis.sd.gov/arcgis/rest/services/SD_All/Transportation_Roads/MapServer',
+  [
+    { id: 0, geometry: 'line' },
+    { id: 1, geometry: 'line' },
+    { id: 2, geometry: 'line' }
+  ]
+);
+
+const USGS_WATER_NAME_TILES = labelOnlyExportTiles(
+  'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer',
+  [
+    { id: 2, geometry: 'line' },
+    { id: 4, geometry: 'line' },
+    { id: 6, geometry: 'line' },
+    { id: 7, geometry: 'polygon' },
+    { id: 9, geometry: 'polygon' },
+    { id: 10, geometry: 'polygon' },
+    { id: 12, geometry: 'polygon' }
+  ]
+);
+
+const ESRI_PLACE_NAME_TILES =
+  'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}';
 
 type ReferenceOverlay = {
   sourceId: string;
@@ -26,8 +97,8 @@ const overlays: ReferenceOverlay[] = [
   {
     sourceId: 'reference-hydrography',
     layerId: 'reference-hydrography',
-    tiles: USGS_NHD_TILES,
-    opacity: 0.92,
+    tiles: USGS_WATER_NAME_TILES,
+    opacity: 1,
     minzoom: 9,
     maxzoom: 19,
     attribution: 'USGS National Hydrography Dataset'
@@ -35,16 +106,16 @@ const overlays: ReferenceOverlay[] = [
   {
     sourceId: 'reference-road-labels',
     layerId: 'reference-road-labels',
-    tiles: SD_ROAD_LABEL_TILES,
+    tiles: SD_ROAD_NAME_TILES,
     opacity: 1,
     minzoom: 8,
-    maxzoom: 17,
+    maxzoom: 19,
     attribution: 'South Dakota DOT / SD BIT'
   },
   {
     sourceId: 'reference-place-labels',
     layerId: 'reference-place-labels',
-    tiles: ESRI_PLACE_LABEL_TILES,
+    tiles: ESRI_PLACE_NAME_TILES,
     opacity: 1,
     minzoom: 0,
     maxzoom: 19,
@@ -86,9 +157,9 @@ const menuOptions: Array<{ key: LayerKey; label: string; detail: string }> = [
   { key: 'project', label: 'Mapped roads and canals', detail: 'Permanent BFID lines you create or import' },
   { key: 'structures', label: 'Structures and points', detail: 'Checks, boxes, gates, crossings and drop-ins' },
   { key: 'builder', label: 'Active recording line', detail: 'Yellow road-building trace while recording' },
-  { key: 'roads', label: 'Roads and road names', detail: 'South Dakota transportation reference' },
-  { key: 'hydrography', label: 'Waterways and water names', detail: 'USGS rivers, canals, ditches and water bodies' },
-  { key: 'places', label: 'Towns and place names', detail: 'Cities, communities and general place labels' }
+  { key: 'roads', label: 'Road names only', detail: 'Text labels without transportation linework' },
+  { key: 'hydrography', label: 'Water names only', detail: 'River, canal, ditch and water-body names without traces or fills' },
+  { key: 'places', label: 'Place names only', detail: 'Town, community and general location labels' }
 ];
 
 function loadVisibility(): LayerVisibility {
@@ -330,7 +401,7 @@ class LayerMenuControl implements IControl {
  * MapView owns the MapLibre instance. Hooking the first control addition lets us
  * register one post-load callback without exposing the map globally. The delayed
  * callback runs after MapView installs the selected aerial/terrain layer, keeping
- * the road, hydrography and place overlays above the imagery.
+ * the name-only reference overlays above the imagery.
  */
 export function installReferenceOverlayPatch(): void {
   const prototype = MapLibreMap.prototype as any;
@@ -349,7 +420,7 @@ export function installReferenceOverlayPatch(): void {
             this.addControl(new LayerMenuControl(), 'top-right');
             applyVisibility(this, loadVisibility());
           } catch (error) {
-            console.warn('Could not add map reference layers or layer menu', error);
+            console.warn('Could not add map name overlays or layer menu', error);
           }
         }, 0);
       });
