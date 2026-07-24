@@ -1,8 +1,11 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
+import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
+
+installReferenceOverlayPatch();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
