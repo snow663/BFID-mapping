@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import { demoSegments, demoStructures } from './demo';
-import type { ProjectSegment, StructurePoint, TrackPoint, TrackSession } from './types';
+import type { ProjectSegment, Ride, StructurePoint, TrackPoint, TrackSession } from './types';
 
 export interface SettingRecord {
   key: string;
@@ -8,6 +8,7 @@ export interface SettingRecord {
 }
 
 class BFIDDatabase extends Dexie {
+  rides!: EntityTable<Ride, 'id'>;
   segments!: EntityTable<ProjectSegment, 'id'>;
   structures!: EntityTable<StructurePoint, 'id'>;
   trackSessions!: EntityTable<TrackSession, 'id'>;
@@ -20,6 +21,14 @@ class BFIDDatabase extends Dexie {
       segments: '&id, systemId, featureType, travelStatus, mowStatus',
       structures: '&id, structureType',
       trackSessions: '&id, activity, equipment, startedAt',
+      trackPoints: '++id, sessionId, timestamp',
+      settings: '&key'
+    });
+    this.version(2).stores({
+      rides: '&id, name, createdAt, updatedAt',
+      segments: '&id, systemId, rideId, featureType, travelStatus, mowStatus',
+      structures: '&id, structureType',
+      trackSessions: '&id, activity, equipment, rideId, startedAt',
       trackPoints: '++id, sessionId, timestamp',
       settings: '&key'
     });
