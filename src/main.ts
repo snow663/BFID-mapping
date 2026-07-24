@@ -6,80 +6,6 @@ import './map-overrides.css';
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
-function releaseGraphicsContext(gl: WebGLRenderingContext | WebGL2RenderingContext): void {
-  try {
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-  } catch (error) {
-    console.warn('Could not explicitly release raw WebGL test context', error);
-  }
-}
-
-function runRawWebglTest(): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = 8;
-  canvas.height = 8;
-
-  for (const type of ['webgl2', 'webgl'] as const) {
-    try {
-      const gl = canvas.getContext(type, {
-        alpha: false,
-        antialias: false,
-        failIfMajorPerformanceCaveat: false,
-        powerPreference: 'low-power',
-        preserveDrawingBuffer: true
-      }) as WebGLRenderingContext | WebGL2RenderingContext | null;
-
-      if (!gl) continue;
-
-      gl.viewport(0, 0, 8, 8);
-      gl.clearColor(0.1, 0.8, 0.25, 1);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      const pixel = new Uint8Array(4);
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-      const rendered = pixel[1] > 120 && pixel[3] > 200;
-      const result = `${type.toUpperCase()} ${rendered ? 'PASS' : 'CONTEXT-ONLY'}`;
-
-      // The test must not leave an extra GPU context alive before MapLibre starts.
-      releaseGraphicsContext(gl);
-      canvas.width = 0;
-      canvas.height = 0;
-      return result;
-    } catch (error) {
-      console.warn(`Raw ${type} test failed`, error);
-    }
-  }
-
-  canvas.width = 0;
-  canvas.height = 0;
-  return 'WEBGL FAIL';
-}
-
-function installBuildBadge(glStatus: string): void {
-  const badge = document.createElement('div');
-  badge.id = 'bfid-build-badge';
-  badge.textContent = `BUILD ${buildId} · ${glStatus}`;
-  Object.assign(badge.style, {
-    position: 'fixed',
-    left: '50%',
-    bottom: '4px',
-    transform: 'translateX(-50%)',
-    zIndex: '99999',
-    maxWidth: 'calc(100vw - 12px)',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    padding: '4px 8px',
-    border: '1px solid #8ab49b',
-    borderRadius: '6px',
-    background: 'rgba(4, 13, 9, 0.94)',
-    color: '#d9f3e1',
-    font: '700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-    pointerEvents: 'none'
-  });
-  document.body.appendChild(badge);
-}
-
 async function clearHostedPreviewCaches(): Promise<boolean> {
   if (!location.hostname.endsWith('github.io')) return false;
 
@@ -116,9 +42,6 @@ async function clearHostedPreviewCaches(): Promise<boolean> {
 }
 
 async function start(): Promise<void> {
-  const rawGlStatus = runRawWebglTest();
-  installBuildBadge(rawGlStatus);
-
   const reloading = await clearHostedPreviewCaches();
   if (reloading) return;
 
