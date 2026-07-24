@@ -1,6 +1,7 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
 import { installGpsFollowPatch } from './lib/installGpsFollow';
+import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -10,6 +11,7 @@ import './map-overrides.css';
 installReferenceOverlayPatch();
 installGpsFollowPatch();
 installProjectImportPatch();
+installIrrigationReconPatch();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
