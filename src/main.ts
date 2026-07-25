@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 import { installGpsFollowPatch } from './lib/installGpsFollow';
 import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
+import { installMapPolishPatch } from './lib/installMapPolish';
 import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
@@ -14,6 +15,7 @@ installReferenceOverlayPatch();
 installGpsFollowPatch();
 installProjectImportPatch();
 installIrrigationReconPatch();
+installMapPolishPatch();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
