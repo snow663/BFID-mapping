@@ -1,5 +1,6 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
+import { installExplicitMapPanels } from './lib/installExplicitMapPanels';
 import { installGpsFollowPatch } from './lib/installGpsFollow';
 import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
 import { installMapPolishPatch } from './lib/installMapPolish';
@@ -16,6 +17,7 @@ installReferenceOverlayPatch();
 installGpsFollowPatch();
 installProjectImportPatch();
 installIrrigationReconPatch();
+installExplicitMapPanels();
 installMapPolishPatch();
 installRoadLabelOrderingPatch();
 
