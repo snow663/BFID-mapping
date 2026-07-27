@@ -10,6 +10,7 @@ import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
 import { installRoadLabelOrderingPatch } from './lib/installRoadLabelOrdering';
 import { installSprayAssistant } from './lib/installSprayAssistant';
+import { installSprayTrackLayer } from './lib/installSprayTrackLayer';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
@@ -23,6 +24,7 @@ installExplicitMapPanels();
 installMapPolishPatch();
 installRoadLabelOrderingPatch();
 installMesonetStationsPatch();
+installSprayTrackLayer();
 installSprayAssistant();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
