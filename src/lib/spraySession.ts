@@ -2,6 +2,8 @@ import { db } from './db';
 import { chooseSprayStation, fetchStationWeather, type SnapshotReason, type SprayPosition, type SpraySettings, type WeatherSnapshot } from './sprayWeather';
 
 const WEATHER_INTERVAL_MS = 15 * 60 * 1000;
+const TRACK_EVENT = 'bfid:spray-track';
+const TRACK_STATE_KEY = '__bfidSprayTrackState';
 
 export type SprayStatus = 'unsprayed' | 'partial' | 'sprayed' | 'needs-return' | 'skipped';
 
@@ -24,6 +26,7 @@ export type SpraySessionState = {
   position: SprayPosition | null;
   pointCount: number;
   weatherCount: number;
+  coordinates: [number, number][];
 };
 
 export type RecentSpraySession = SpraySessionRecord & {
@@ -31,7 +34,14 @@ export type RecentSpraySession = SpraySessionRecord & {
   pointCount: number;
 };
 
-let state: SpraySessionState = { active: false, session: null, position: null, pointCount: 0, weatherCount: 0 };
+let state: SpraySessionState = {
+  active: false,
+  session: null,
+  position: null,
+  pointCount: 0,
+  weatherCount: 0,
+  coordinates: []
+};
 let watchId: number | null = null;
 let weatherTimer: number | null = null;
 let settings: SpraySettings | null = null;
@@ -39,7 +49,15 @@ let listener: ((state: SpraySessionState) => void) | null = null;
 let stopping = false;
 
 function publish(): void {
-  listener?.({ ...state });
+  const snapshot = { ...state, coordinates: [...state.coordinates] };
+  listener?.(snapshot);
+  (window as unknown as Record<string, unknown>)[TRACK_STATE_KEY] = {
+    active: state.active,
+    coordinates: [...state.coordinates]
+  };
+  window.dispatchEvent(new CustomEvent(TRACK_EVENT, {
+    detail: { active: state.active, coordinates: [...state.coordinates] }
+  }));
 }
 
 function getFix(): Promise<SprayPosition> {
@@ -65,7 +83,12 @@ function getFix(): Promise<SprayPosition> {
 async function savePoint(position: SprayPosition): Promise<void> {
   if (!state.session) return;
   await db.trackPoints.add({ ...position, sessionId: state.session.id } as any);
-  state = { ...state, position, pointCount: state.pointCount + 1 };
+  state = {
+    ...state,
+    position,
+    pointCount: state.pointCount + 1,
+    coordinates: [...state.coordinates, [position.longitude, position.latitude]]
+  };
   publish();
 }
 
@@ -111,7 +134,14 @@ export async function startSpraySession(
     weatherSnapshots: []
   };
   await db.trackSessions.add(session as any);
-  state = { active: true, session, position: firstFix, pointCount: 0, weatherCount: 0 };
+  state = {
+    active: true,
+    session,
+    position: firstFix,
+    pointCount: 0,
+    weatherCount: 0,
+    coordinates: []
+  };
   await savePoint(firstFix);
 
   watchId = navigator.geolocation.watchPosition(
@@ -130,7 +160,10 @@ export async function startSpraySession(
   );
 
   try { await captureSprayWeather('start'); } catch { /* GPS record continues offline */ }
-  weatherTimer = window.setInterval(() => void captureSprayWeather('interval').catch(() => undefined), WEATHER_INTERVAL_MS);
+  weatherTimer = window.setInterval(
+    () => void captureSprayWeather('interval').catch(() => undefined),
+    WEATHER_INTERVAL_MS
+  );
   publish();
   return state;
 }
@@ -144,7 +177,14 @@ export async function stopSpraySession(): Promise<SpraySessionState> {
   weatherTimer = null;
   try { await captureSprayWeather('end'); } catch { /* preserve session without end weather */ }
   await db.trackSessions.update(state.session.id, { endedAt: new Date().toISOString() } as any);
-  state = { active: false, session: null, position: state.position, pointCount: 0, weatherCount: 0 };
+  state = {
+    active: false,
+    session: null,
+    position: state.position,
+    pointCount: 0,
+    weatherCount: 0,
+    coordinates: []
+  };
   stopping = false;
   publish();
   listener = null;
@@ -153,11 +193,13 @@ export async function stopSpraySession(): Promise<SpraySessionState> {
 }
 
 export function getSpraySessionState(): SpraySessionState {
-  return { ...state };
+  return { ...state, coordinates: [...state.coordinates] };
 }
 
 export async function getRecentSpraySessions(limit = 5): Promise<RecentSpraySession[]> {
-  const sessions = (await db.trackSessions.where('activity').equals('spraying').toArray() as unknown as SpraySessionRecord[])
+  const sessions = (
+    await db.trackSessions.where('activity').equals('spraying').toArray() as unknown as SpraySessionRecord[]
+  )
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
     .slice(0, limit);
   return Promise.all(sessions.map(async (session) => {
