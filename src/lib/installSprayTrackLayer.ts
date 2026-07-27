@@ -7,6 +7,7 @@ const SOURCE_ID = 'bfid-active-spray-track';
 const CASING_LAYER_ID = 'bfid-active-spray-track-casing';
 const LINE_LAYER_ID = 'bfid-active-spray-track-line';
 const EVENT_NAME = 'bfid:spray-track';
+const STATE_KEY = '__bfidSprayTrackState';
 
 type SprayTrackDetail = {
   active: boolean;
@@ -22,9 +23,20 @@ function collection(coordinates: [number, number][]): FeatureCollection<LineStri
   };
 }
 
+function currentTrack(): SprayTrackDetail {
+  const value = (window as unknown as Record<string, unknown>)[STATE_KEY] as SprayTrackDetail | undefined;
+  return value?.active && Array.isArray(value.coordinates)
+    ? { active: true, coordinates: value.coordinates }
+    : { active: false, coordinates: [] };
+}
+
 function initialize(map: MapLibreMap): void {
+  const initial = currentTrack();
   if (!map.getSource(SOURCE_ID)) {
-    map.addSource(SOURCE_ID, { type: 'geojson', data: collection([]) });
+    map.addSource(SOURCE_ID, {
+      type: 'geojson',
+      data: collection(initial.active ? initial.coordinates : [])
+    });
   }
   if (!map.getLayer(CASING_LAYER_ID)) {
     map.addLayer({
