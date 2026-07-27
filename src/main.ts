@@ -4,6 +4,7 @@ import { installExplicitMapPanels } from './lib/installExplicitMapPanels';
 import { installGpsFollowPatch } from './lib/installGpsFollow';
 import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
 import { installMapPolishPatch } from './lib/installMapPolish';
+import { installMesonetStationsPatch } from './lib/installMesonetStations';
 import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
@@ -20,6 +21,7 @@ installIrrigationReconPatch();
 installExplicitMapPanels();
 installMapPolishPatch();
 installRoadLabelOrderingPatch();
+installMesonetStationsPatch();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
