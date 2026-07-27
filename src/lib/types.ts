@@ -9,8 +9,9 @@ export type TravelStatus =
   | 'foot-only';
 
 export type MowStatus = 'unmowed' | 'partial' | 'mowed' | 'needs-return' | 'skipped';
+export type SprayStatus = 'unsprayed' | 'partial' | 'sprayed' | 'needs-return' | 'skipped';
 export type Equipment = 'mower' | 'atv' | 'pickup' | 'tractor';
-export type Activity = 'travel' | 'mowing' | 'mapping';
+export type Activity = 'travel' | 'mowing' | 'spraying' | 'mapping';
 export type LocationMode = 'none' | 'manual' | 'live';
 export type BaseLayerMode = 'none' | 'naip' | 'hillshade' | 'slope' | 'naip-hillshade' | 'custom';
 export type CaptureMethod = 'imported' | 'driven' | 'manual';
@@ -34,6 +35,7 @@ export interface ProjectSegment {
   travelStatus: TravelStatus;
   verifiedEquipment: Equipment[];
   mowStatus: MowStatus;
+  sprayStatus?: SprayStatus;
   lastVerifiedAt?: string;
   notes?: string;
   geometry: LineString;
@@ -71,6 +73,11 @@ export interface TrackSession {
   endedAt?: string;
   name?: string;
   rideId?: string;
+  segmentId?: string;
+  productName?: string;
+  applicationNotes?: string;
+  weatherStationMode?: string;
+  weatherSnapshots?: unknown[];
 }
 
 export interface TrackPoint extends PositionFix {
