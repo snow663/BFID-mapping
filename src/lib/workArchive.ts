@@ -1,6 +1,6 @@
 import { db } from './db';
 import type { TrackPoint, TrackSession } from './types';
-import type { SpraySessionRecord, SprayOutcome } from './spraySession';
+import type { SpraySessionRecord } from './spraySession';
 import type { WeatherSnapshot } from './sprayWeather';
 
 export type WorkRange = 'week' | 'ytd';
@@ -90,19 +90,18 @@ async function rowsForRange(range: WorkRange): Promise<WorkRow[]> {
         endWeather: weatherText(session.endWeather)
       });
     } else {
-      const session = raw as TrackSession;
       rows.push({
-        date: localDate(session.startedAt),
+        date: localDate(raw.startedAt),
         activity: 'mowing',
-        outcome: 'completed',
-        location: session.name || session.rideId || 'GPS mowing track',
-        startedAt: localTime(session.startedAt),
+        outcome: raw.outcome ?? 'completed',
+        location: raw.segmentName || raw.segmentId || raw.name || raw.workItemId || 'GPS mowing site',
+        startedAt: localTime(raw.startedAt),
         endedAt: localTime(raw.endedAt),
         durationMinutes: Math.max(0, Math.round((end - start) / 60000)),
         distanceMiles: trackDistance(points),
         gpsPoints: points.length,
         product: '',
-        equipment: session.equipment,
+        equipment: raw.equipmentProfileName || raw.equipment || '',
         startWeather: '',
         endWeather: ''
       });
@@ -204,7 +203,7 @@ function makePdf(lines: string[]): string {
   return pdf;
 }
 
-function outcomeCount(rows: WorkRow[], activity: WorkRow['activity'], outcome: SprayOutcome | 'completed'): number {
+function outcomeCount(rows: WorkRow[], activity: WorkRow['activity'], outcome: string): number {
   return rows.filter((row) => row.activity === activity && row.outcome === outcome).length;
 }
 
@@ -221,7 +220,9 @@ export async function exportWorkPdf(range: WorkRange): Promise<void> {
     `Spray runs completed: ${outcomeCount(rows, 'spraying', 'completed')}`,
     `Spray runs needing return: ${outcomeCount(rows, 'spraying', 'needs-return')}`,
     `Spray runs partial: ${outcomeCount(rows, 'spraying', 'partial')}`,
-    `Mowing sessions completed: ${outcomeCount(rows, 'mowing', 'completed')}`,
+    `Mowing runs completed: ${outcomeCount(rows, 'mowing', 'completed')}`,
+    `Mowing runs needing return: ${outcomeCount(rows, 'mowing', 'needs-return')}`,
+    `Mowing runs partial: ${outcomeCount(rows, 'mowing', 'partial')}`,
     `Recorded field time: ${(totalMinutes / 60).toFixed(1)} hours`,
     `Recorded GPS travel: ${totalMiles.toFixed(1)} miles`,
     '',
