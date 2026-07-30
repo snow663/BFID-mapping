@@ -7,6 +7,7 @@ import { installMapPolishPatch } from './lib/installMapPolish';
 import { installMesonetStationsPatch } from './lib/installMesonetStations';
 import { installMowingAssistant } from './lib/installMowingAssistant';
 import { installMowingTrackLayer } from './lib/installMowingTrackLayer';
+import { installNativeReminderScheduler } from './lib/installNativeReminderScheduler';
 import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
@@ -30,6 +31,7 @@ installMowingTrackLayer();
 installSprayTrackLayer();
 installMowingAssistant();
 installSprayAssistant();
+installNativeReminderScheduler();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
 
