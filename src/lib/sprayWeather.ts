@@ -4,14 +4,24 @@ export const SPRAY_STATIONS = [
 ] as const;
 
 export type SprayStation = (typeof SPRAY_STATIONS)[number];
-export type SnapshotReason = 'start' | 'interval' | 'manual' | 'end';
+export type SnapshotReason = 'start' | 'manual' | 'end';
 export type SprayRating = 'good' | 'marginal' | 'hold' | 'unknown';
+
+export type SprayRigProfile = {
+  id: string;
+  name: string;
+  vehicle: string;
+  tankGallons: number | null;
+  deliveryMethod: string;
+  operatingPosition: string;
+};
 
 export type SpraySettings = {
   stationMode: string;
   productName: string;
   applicationNotes: string;
-  sprayEquipment: string;
+  rigProfiles: SprayRigProfile[];
+  selectedRigId: string;
   maxWindMph: number;
   maxGustMph: number;
   minHumidityPercent: number;
@@ -20,6 +30,7 @@ export type SpraySettings = {
   maxPrecipProbabilityPercent: number;
   requiredDryHours: number;
   minimumWindowHours: number;
+  followUpDays: number;
 };
 
 export type SprayPosition = {
@@ -76,11 +87,21 @@ export type SprayWindow = {
   maxPrecipitationPercent: number | null;
 };
 
+export const PRIMARY_SPRAY_RIG: SprayRigProfile = {
+  id: 'rtv-75-handgun',
+  name: 'RTV · 75 gal hand gun',
+  vehicle: 'RTV',
+  tankGallons: 75,
+  deliveryMethod: 'Hand spot-spraying gun',
+  operatingPosition: 'From canal or lateral bank'
+};
+
 export const DEFAULT_SPRAY_SETTINGS: SpraySettings = {
   stationMode: 'auto',
-  productName: '',
+  productName: 'Glyphosate',
   applicationNotes: '',
-  sprayEquipment: 'pickup-sprayer',
+  rigProfiles: [PRIMARY_SPRAY_RIG],
+  selectedRigId: PRIMARY_SPRAY_RIG.id,
   maxWindMph: 10,
   maxGustMph: 15,
   minHumidityPercent: 30,
@@ -88,7 +109,8 @@ export const DEFAULT_SPRAY_SETTINGS: SpraySettings = {
   maxTemperatureF: 90,
   maxPrecipProbabilityPercent: 20,
   requiredDryHours: 6,
-  minimumWindowHours: 2
+  minimumWindowHours: 2,
+  followUpDays: 30
 };
 
 const IEM_CURRENT_URL = 'https://mesonet.agron.iastate.edu/json/current.py';
@@ -102,6 +124,52 @@ function finiteNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function normalizeRig(candidate: Partial<SprayRigProfile>, index: number): SprayRigProfile {
+  return {
+    id: String(candidate.id || `spray-rig-${index + 1}`),
+    name: String(candidate.name || `Spray rig ${index + 1}`),
+    vehicle: String(candidate.vehicle || ''),
+    tankGallons: finiteNumber(candidate.tankGallons),
+    deliveryMethod: String(candidate.deliveryMethod || ''),
+    operatingPosition: String(candidate.operatingPosition || '')
+  };
+}
+
+export function normalizeSpraySettings(candidate: Partial<SpraySettings> & { sprayEquipment?: string } = {}): SpraySettings {
+  const suppliedProfiles = Array.isArray(candidate.rigProfiles)
+    ? candidate.rigProfiles.map((profile, index) => normalizeRig(profile, index)).filter((profile) => profile.name.trim())
+    : [];
+  const rigProfiles = suppliedProfiles.length ? suppliedProfiles : [
+    candidate.sprayEquipment
+      ? { ...PRIMARY_SPRAY_RIG, id: candidate.sprayEquipment, name: candidate.sprayEquipment }
+      : PRIMARY_SPRAY_RIG
+  ];
+  const selectedRigId = rigProfiles.some((profile) => profile.id === candidate.selectedRigId)
+    ? String(candidate.selectedRigId)
+    : rigProfiles[0].id;
+  const numberOr = (value: unknown, fallback: number): number => finiteNumber(value) ?? fallback;
+  return {
+    stationMode: String(candidate.stationMode || DEFAULT_SPRAY_SETTINGS.stationMode),
+    productName: String(candidate.productName || DEFAULT_SPRAY_SETTINGS.productName),
+    applicationNotes: String(candidate.applicationNotes || ''),
+    rigProfiles,
+    selectedRigId,
+    maxWindMph: numberOr(candidate.maxWindMph, DEFAULT_SPRAY_SETTINGS.maxWindMph),
+    maxGustMph: numberOr(candidate.maxGustMph, DEFAULT_SPRAY_SETTINGS.maxGustMph),
+    minHumidityPercent: numberOr(candidate.minHumidityPercent, DEFAULT_SPRAY_SETTINGS.minHumidityPercent),
+    minTemperatureF: numberOr(candidate.minTemperatureF, DEFAULT_SPRAY_SETTINGS.minTemperatureF),
+    maxTemperatureF: numberOr(candidate.maxTemperatureF, DEFAULT_SPRAY_SETTINGS.maxTemperatureF),
+    maxPrecipProbabilityPercent: numberOr(candidate.maxPrecipProbabilityPercent, DEFAULT_SPRAY_SETTINGS.maxPrecipProbabilityPercent),
+    requiredDryHours: Math.round(numberOr(candidate.requiredDryHours, DEFAULT_SPRAY_SETTINGS.requiredDryHours)),
+    minimumWindowHours: Math.round(numberOr(candidate.minimumWindowHours, DEFAULT_SPRAY_SETTINGS.minimumWindowHours)),
+    followUpDays: Math.round(numberOr(candidate.followUpDays, DEFAULT_SPRAY_SETTINGS.followUpDays))
+  };
+}
+
+export function selectedRig(settings: SpraySettings): SprayRigProfile {
+  return settings.rigProfiles.find((profile) => profile.id === settings.selectedRigId) ?? settings.rigProfiles[0] ?? PRIMARY_SPRAY_RIG;
 }
 
 function observationNumber(observation: Record<string, unknown>, keys: string[]): number | null {
@@ -120,7 +188,7 @@ function relativeHumidity(tempF: number | null, dewpointF: number | null): numbe
   return Math.max(0, Math.min(100, humidity));
 }
 
-function distanceMeters(a: { longitude: number; latitude: number }, b: { longitude: number; latitude: number }): number {
+export function distanceMeters(a: { longitude: number; latitude: number }, b: { longitude: number; latitude: number }): number {
   const r = Math.PI / 180;
   const lat1 = a.latitude * r;
   const lat2 = b.latitude * r;
