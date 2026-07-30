@@ -5,6 +5,8 @@ import { installGpsFollowPatch } from './lib/installGpsFollow';
 import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
 import { installMapPolishPatch } from './lib/installMapPolish';
 import { installMesonetStationsPatch } from './lib/installMesonetStations';
+import { installMowingAssistant } from './lib/installMowingAssistant';
+import { installMowingTrackLayer } from './lib/installMowingTrackLayer';
 import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
 import { installProjectImportPatch } from './lib/installProjectImport';
 import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
@@ -24,7 +26,9 @@ installExplicitMapPanels();
 installMapPolishPatch();
 installRoadLabelOrderingPatch();
 installMesonetStationsPatch();
+installMowingTrackLayer();
 installSprayTrackLayer();
+installMowingAssistant();
 installSprayAssistant();
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
