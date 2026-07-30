@@ -80,6 +80,9 @@ export interface TrackSession {
   outcome?: 'completed' | 'needs-return' | 'partial';
   productName?: string;
   rigProfileName?: string;
+  equipmentProfileId?: string;
+  equipmentProfileName?: string;
+  workNotes?: string;
 }
 
 export interface TrackPoint extends PositionFix {
