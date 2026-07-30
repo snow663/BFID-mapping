@@ -1,39 +1,113 @@
 import { mount } from 'svelte';
-import App from './App.svelte';
-import { installExplicitMapPanels } from './lib/installExplicitMapPanels';
-import { installGpsFollowPatch } from './lib/installGpsFollow';
-import { installIrrigationReconPatch } from './lib/installIrrigationRecon';
-import { installMapPolishPatch } from './lib/installMapPolish';
-import { installMesonetStationsPatch } from './lib/installMesonetStations';
-import { installMowingAssistant } from './lib/installMowingAssistant';
-import { installMowingTrackLayer } from './lib/installMowingTrackLayer';
-import { installNativeReminderScheduler } from './lib/installNativeReminderScheduler';
-import { installNhdServiceAdapter } from './lib/installNhdServiceAdapter';
-import { installProjectImportPatch } from './lib/installProjectImport';
-import { installReferenceOverlayPatch } from './lib/installReferenceOverlays';
-import { installRoadLabelOrderingPatch } from './lib/installRoadLabelOrdering';
-import { installSprayAssistant } from './lib/installSprayAssistant';
-import { installSprayTrackLayer } from './lib/installSprayTrackLayer';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
 
-installNhdServiceAdapter();
-installReferenceOverlayPatch();
-installGpsFollowPatch();
-installProjectImportPatch();
-installIrrigationReconPatch();
-installExplicitMapPanels();
-installMapPolishPatch();
-installRoadLabelOrderingPatch();
-installMesonetStationsPatch();
-installMowingTrackLayer();
-installSprayTrackLayer();
-installMowingAssistant();
-installSprayAssistant();
-installNativeReminderScheduler();
+type Installer = {
+  name: string;
+  run: () => Promise<void>;
+};
 
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.stack || error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Unknown startup error';
+  }
+}
+
+function reportFatalStartup(error: unknown): void {
+  const message = errorText(error);
+  console.error('BFID Mapping startup failed', error);
+
+  const boot = document.getElementById('bfid-boot');
+  if (!boot) return;
+  boot.classList.add('failed');
+
+  const heading = boot.querySelector<HTMLElement>('[data-boot-heading]');
+  const detail = boot.querySelector<HTMLElement>('[data-boot-detail]');
+  if (heading) heading.textContent = 'BFID Mapping could not start';
+  if (detail) detail.textContent = message;
+}
+
+function clearBootPanel(): void {
+  const boot = document.getElementById('bfid-boot');
+  if (!boot) return;
+  window.requestAnimationFrame(() => boot.remove());
+}
+
+async function installStartupPatches(): Promise<void> {
+  const installers: Installer[] = [
+    {
+      name: 'NHD service adapter',
+      run: async () => (await import('./lib/installNhdServiceAdapter')).installNhdServiceAdapter()
+    },
+    {
+      name: 'reference overlays',
+      run: async () => (await import('./lib/installReferenceOverlays')).installReferenceOverlayPatch()
+    },
+    {
+      name: 'GPS follow',
+      run: async () => (await import('./lib/installGpsFollow')).installGpsFollowPatch()
+    },
+    {
+      name: 'project import',
+      run: async () => (await import('./lib/installProjectImport')).installProjectImportPatch()
+    },
+    {
+      name: 'irrigation reconnaissance',
+      run: async () => (await import('./lib/installIrrigationRecon')).installIrrigationReconPatch()
+    },
+    {
+      name: 'explicit map panels',
+      run: async () => (await import('./lib/installExplicitMapPanels')).installExplicitMapPanels()
+    },
+    {
+      name: 'map polish',
+      run: async () => (await import('./lib/installMapPolish')).installMapPolishPatch()
+    },
+    {
+      name: 'road label ordering',
+      run: async () => (await import('./lib/installRoadLabelOrdering')).installRoadLabelOrderingPatch()
+    },
+    {
+      name: 'Mesonet stations',
+      run: async () => (await import('./lib/installMesonetStations')).installMesonetStationsPatch()
+    },
+    {
+      name: 'mowing track layer',
+      run: async () => (await import('./lib/installMowingTrackLayer')).installMowingTrackLayer()
+    },
+    {
+      name: 'spray track layer',
+      run: async () => (await import('./lib/installSprayTrackLayer')).installSprayTrackLayer()
+    },
+    {
+      name: 'mowing assistant',
+      run: async () => (await import('./lib/installMowingAssistant')).installMowingAssistant()
+    },
+    {
+      name: 'spray assistant',
+      run: async () => (await import('./lib/installSprayAssistant')).installSprayAssistant()
+    },
+    {
+      name: 'native reminder scheduler',
+      run: async () => (await import('./lib/installNativeReminderScheduler')).installNativeReminderScheduler()
+    }
+  ];
+
+  for (const installer of installers) {
+    try {
+      await installer.run();
+    } catch (error) {
+      console.error(`Could not install ${installer.name}`, error);
+    }
+  }
+}
 
 async function clearHostedPreviewCaches(): Promise<boolean> {
   if (!location.hostname.endsWith('github.io')) return false;
@@ -71,12 +145,21 @@ async function clearHostedPreviewCaches(): Promise<boolean> {
 }
 
 async function start(): Promise<void> {
-  const reloading = await clearHostedPreviewCaches();
-  if (reloading) return;
+  try {
+    const reloading = await clearHostedPreviewCaches();
+    if (reloading) return;
 
-  mount(App, {
-    target: document.getElementById('app')!
-  });
+    await installStartupPatches();
+
+    const { default: App } = await import('./App.svelte');
+    const target = document.getElementById('app');
+    if (!target) throw new Error('Application mount element is missing.');
+
+    mount(App, { target });
+    clearBootPanel();
+  } catch (error) {
+    reportFatalStartup(error);
+  }
 }
 
 void start();
