@@ -33,7 +33,7 @@ export interface ProjectSegment {
   toNodeId: string;
   side: 'left' | 'right' | 'center' | 'buried';
   travelStatus: TravelStatus;
-  verifiedEquipment: Equipment[];
+  verifiedEquipment: string[];
   mowStatus: MowStatus;
   sprayStatus?: SprayStatus;
   lastVerifiedAt?: string;
