@@ -1,10 +1,10 @@
 # Android APK Build Status
 
-- Result: **success**
+- Result: **cancelled**
 - Application branch: `agent/initial-local-first-mapping-app`
-- Source commit: `5d162ad51709ba73caeefade014d90dfb99bb16e`
-- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/30526189503
-- Finished: 2026-07-30 08:24:10 UTC
-- APK bytes: 235034169
-- SHA-256: `ff5bc414f81fbe42b5e55052c84beb9196ee80fbe16c3944da6886bc0b460d7a`
+- Source commit: `514dd6ea8838942e2c98b555974f1e378a9a7231`
+- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/30531724967
+- Finished: 2026-07-30 09:46:58 UTC
+- APK bytes: 235047937
+- SHA-256: `6140fa3b8f8bcaf3a91b92ff69f36d9865e15e711e1aa51bf3470b9f22948b34`
 - Release tag: `android-latest`
