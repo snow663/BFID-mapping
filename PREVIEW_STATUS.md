@@ -1,7 +1,9 @@
 # Mobile preview
 
-Status: live
+Status: failed
 
-https://snow663.github.io/BFID-mapping/
+Build: failure
 
-Run: https://github.com/snow663/BFID-mapping/actions/runs/30291282162
+Deploy: skipped
+
+Run: https://github.com/snow663/BFID-mapping/actions/runs/30521367225
