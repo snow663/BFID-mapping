@@ -68,16 +68,18 @@ export interface PositionFix {
 export interface TrackSession {
   id: string;
   activity: Activity;
-  equipment: Equipment;
+  equipment: string;
   startedAt: string;
   endedAt?: string;
   name?: string;
   rideId?: string;
   segmentId?: string;
+  segmentName?: string;
+  workItemId?: string;
+  sequence?: number;
+  outcome?: 'completed' | 'needs-return' | 'partial';
   productName?: string;
-  applicationNotes?: string;
-  weatherStationMode?: string;
-  weatherSnapshots?: unknown[];
+  rigProfileName?: string;
 }
 
 export interface TrackPoint extends PositionFix {
