@@ -1,0 +1,20 @@
+#bfid-mowing-assistant{margin-inline:-.35rem;padding-inline:.35rem;border:1px solid #677d35;border-radius:9px;background:rgba(75,96,31,.14)}
+#bfid-mowing-assistant h2{color:#d8ebb0}
+#bfid-mowing-assistant textarea{width:100%;min-height:68px;resize:vertical;padding:.55rem .65rem;border:1px solid #53623d;border-radius:8px;background:#1c2717;color:#f1f5ec;font:inherit}
+.bfid-mowing-grid,.bfid-mowing-actions,.bfid-mowing-finish-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}
+.bfid-mowing-actions.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.bfid-mowing-workflow,.bfid-mowing-profile-editor,.bfid-mowing-settings>div,.bfid-mowing-archive>div{display:grid;gap:.55rem}
+.bfid-mowing-session{display:grid;gap:.2rem;padding:.65rem;border:1px solid #596847;border-radius:8px;background:#182218}
+.bfid-mowing-session span,.bfid-mowing-session small{color:#cbd7c1;font-size:.75rem;line-height:1.35}
+.bfid-mowing-session.active{border-color:#96c83f;background:#243916;color:#f5ffe8}.bfid-mowing-session.active strong{color:#c6f274}
+.bfid-mowing-record-list,.bfid-mowing-reminders{display:grid;gap:.42rem}
+.bfid-mowing-record,.bfid-mowing-reminder{display:grid;gap:.18rem;padding:.55rem;border:1px solid #53643c;border-radius:7px;background:#1a2817}
+.bfid-mowing-record strong,.bfid-mowing-reminder strong{color:#ecf8dc;font-size:.82rem}.bfid-mowing-record span,.bfid-mowing-record small,.bfid-mowing-reminder span,.bfid-mowing-reminder small{color:#b9c9aa;font-size:.71rem;line-height:1.35}
+.bfid-mowing-reminder.return{border-color:#c86642;background:#392014}.bfid-mowing-reminder.follow-up{border-color:#b58b32;background:#332a13}.bfid-mowing-reminder>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin-top:.25rem}
+.bfid-mowing-empty,.bfid-mowing-message,.bfid-mowing-work-item-info{color:#abbca0;font-size:.75rem;line-height:1.4}.bfid-mowing-message{min-height:1.1rem;color:#d7edc6}.bfid-mowing-message.error{color:#ffb5a8}
+.bfid-mowing-work-item-info{display:grid;gap:.12rem;padding:.45rem .55rem;border:1px dashed #5d7145;border-radius:7px;background:#162214}.bfid-mowing-work-item-info span{color:#b2c2a6;font-size:.72rem}
+.bfid-mowing-settings,.bfid-mowing-archive{border:1px solid #4d5e38;border-radius:8px;background:#172116}.bfid-mowing-settings summary,.bfid-mowing-archive summary{cursor:pointer;padding:.6rem;color:#d1e3bd;font-size:.8rem;font-weight:700}.bfid-mowing-settings>div,.bfid-mowing-archive>div{padding:0 .6rem .65rem}
+.bfid-mowing-profile-editor{padding:.55rem;border:1px solid #566943;border-radius:8px;background:#152014}
+.bfid-mowing-start{background:#4e721b!important;border-color:#8fbd45!important;color:#f7ffe9!important}.bfid-mowing-complete{background:#175f37!important;border-color:#42ae69!important}.bfid-mowing-needs-return{background:#744a16!important;border-color:#d59b43!important}.bfid-mowing-partial{background:#4d4f57!important;border-color:#8a8f9c!important}
+.bfid-mowing-finish-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:430px){.bfid-mowing-grid,.bfid-mowing-actions.three,.bfid-mowing-finish-actions{grid-template-columns:1fr}.bfid-mowing-reminder>div{grid-template-columns:1fr}}
