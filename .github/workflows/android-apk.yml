@@ -26,7 +26,7 @@ on:
       - 'tsconfig*.json'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -94,17 +94,72 @@ jobs:
         run: npm run tauri android init -- --ci --skip-targets-install
 
       - name: Build installable ARM APK
-        run: npm run tauri android build -- --debug --apk --target aarch64 --target armv7 --ci
-
-      - name: List generated Android packages
-        if: always()
         shell: bash
-        run: find src-tauri/gen/android/app/build/outputs -type f 2>/dev/null | sort || true
+        run: |
+          set -o pipefail
+          npm run tauri android build -- --debug --apk --target aarch64 --target armv7 --ci 2>&1 | tee android-build.log
 
-      - name: Upload installable APK
+      - name: Collect installable APK
+        if: success()
+        shell: bash
+        run: |
+          APK_PATH="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | sort | head -n 1)"
+          test -n "$APK_PATH"
+          cp "$APK_PATH" BFID-Mapping-debug.apk
+          sha256sum BFID-Mapping-debug.apk > BFID-Mapping-debug.apk.sha256
+
+      - name: Upload workflow APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: bfid-mapping-android-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: |
+            BFID-Mapping-debug.apk
+            BFID-Mapping-debug.apk.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish rolling Android test release
+        if: success() && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: BFID Mapping Android test build
+          body: |
+            Installable debug-signed ARM APK built from the active BFID Mapping application branch.
+            Supports aarch64 and armv7 Android devices.
+          prerelease: true
+          make_latest: false
+          files: |
+            BFID-Mapping-debug.apk
+            BFID-Mapping-debug.apk.sha256
+
+      - name: Write build status
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          {
+            echo '# Android APK Build Status'
+            echo
+            echo "- Result: **${{ job.status }}**"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Finished: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            if [ -f BFID-Mapping-debug.apk ]; then
+              echo "- APK bytes: $(stat -c '%s' BFID-Mapping-debug.apk)"
+              echo "- SHA-256: \`$(cut -d' ' -f1 BFID-Mapping-debug.apk.sha256)\`"
+              echo "- Release tag: \`android-latest\`"
+            else
+              echo
+              echo '## Build log tail'
+              echo '```text'
+              tail -n 100 android-build.log 2>/dev/null || echo 'Android build did not start or no log was produced.'
+              echo '```'
+            fi
+          } > APK_STATUS.md
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add APK_STATUS.md
+          git commit -m 'Report Android APK build result' || exit 0
+          git push origin "HEAD:${GITHUB_REF_NAME}"
