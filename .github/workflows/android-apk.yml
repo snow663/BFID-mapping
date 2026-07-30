@@ -1,0 +1,181 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: 28.2.13676358
+  APP_BRANCH: agent/initial-local-first-mapping-app
+
+jobs:
+  build-apk:
+    name: ARM Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out active application branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.APP_BRANCH }}
+
+      - name: Record source revision
+        shell: bash
+        run: echo "APP_SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform, build tools, and NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platform-tools' \
+            'platforms;android-35' \
+            'build-tools;35.0.0' \
+            "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Set up Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Cache Rust build files
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend and Tauri dependencies
+        run: npm install
+
+      - name: Validate frontend
+        run: npm run check
+
+      - name: Generate native application icons
+        run: npm run tauri icon public/icon.svg
+
+      - name: Initialize generated Android project
+        run: npm run tauri android init -- --ci --skip-targets-install
+
+      - name: Build installable ARM APK
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run tauri android build -- --debug --apk --target aarch64 --target armv7 --ci 2>&1 | tee android-build.log
+
+      - name: Collect installable APK
+        if: success()
+        shell: bash
+        run: |
+          APK_PATH="$(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' | sort | head -n 1)"
+          test -n "$APK_PATH"
+          cp "$APK_PATH" BFID-Mapping-debug.apk
+          sha256sum BFID-Mapping-debug.apk > BFID-Mapping-debug.apk.sha256
+
+      - name: Upload workflow APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bfid-mapping-android-apk
+          path: |
+            BFID-Mapping-debug.apk
+            BFID-Mapping-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish rolling Android test release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          target_commitish: ${{ env.APP_SOURCE_SHA }}
+          name: BFID Mapping Android test build
+          body: |
+            Installable debug-signed ARM APK built from the active BFID Mapping application branch.
+            Supports aarch64 and armv7 Android devices.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: |
+            BFID-Mapping-debug.apk
+            BFID-Mapping-debug.apk.sha256
+
+      - name: Prepare build status report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '# Android APK Build Status'
+            echo
+            echo "- Result: **${{ job.status }}**"
+            echo "- Application branch: \`${APP_BRANCH}\`"
+            echo "- Source commit: \`${APP_SOURCE_SHA:-unknown}\`"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Finished: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            if [ -f BFID-Mapping-debug.apk ]; then
+              echo "- APK bytes: $(stat -c '%s' BFID-Mapping-debug.apk)"
+              echo "- SHA-256: \`$(cut -d' ' -f1 BFID-Mapping-debug.apk.sha256)\`"
+              echo "- Release tag: \`android-latest\`"
+            else
+              echo
+              echo '## Build log tail'
+              echo '```text'
+              tail -n 100 android-build.log 2>/dev/null || echo 'Android build did not start or no log was produced.'
+              echo '```'
+            fi
+          } > APK_STATUS.md
+
+      - name: Commit build status to main
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const path = 'APK_STATUS.md';
+            const content = fs.readFileSync(path, 'utf8');
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({ owner, repo, path, ref: 'main' });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner,
+              repo,
+              path,
+              branch: 'main',
+              message: 'Report Android APK build result',
+              content: Buffer.from(content).toString('base64'),
+              sha
+            });
+
+# Application target: 823c685f2cf99a30f21ef3e285666e279c21ad46
