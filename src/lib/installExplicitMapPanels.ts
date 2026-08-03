@@ -171,7 +171,7 @@ function closePanel(panel: HTMLElement): void {
   const spec = specForPanel(panel);
   const home = panelHomes.get(panel);
   const control = home?.control ?? (spec ? document.querySelector<HTMLElement>(`.${spec.controlClass}`) : null);
-  panel.hidden = true;
+  if (!panel.hidden) panel.hidden = true;
   restorePanel(panel);
   control?.querySelector<HTMLButtonElement>(spec ? `.${spec.buttonClass}` : 'button')?.setAttribute('aria-expanded', 'false');
 }
@@ -184,7 +184,13 @@ function visiblePanels(): HTMLElement[] {
 
 function syncBackdrop(): void {
   const open = visiblePanels().length > 0;
-  getBackdrop().hidden = !open;
+  const backdrop = getBackdrop();
+  const shouldBeHidden = !open;
+
+  // MutationObserver watches the hidden attribute. Android WebView can emit a
+  // mutation even when the same boolean value is assigned again, so only
+  // write when the state genuinely changes or this callback loops forever.
+  if (backdrop.hidden !== shouldBeHidden) backdrop.hidden = shouldBeHidden;
   document.body.classList.toggle('bfid-explicit-panel-open', open);
 }
 
@@ -209,7 +215,7 @@ function openPanel(control: HTMLElement, panel: HTMLElement, spec: PanelSpec): v
     document.body.append(panel);
   }
 
-  panel.hidden = false;
+  if (panel.hidden) panel.hidden = false;
   control.querySelector<HTMLButtonElement>(`.${spec.buttonClass}`)?.setAttribute('aria-expanded', 'true');
   syncBackdrop();
   panel.scrollTop = 0;
