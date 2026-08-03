@@ -1,9 +1,10 @@
 import { Map as MapLibreMap, type GeoJSONSource } from 'maplibre-gl';
-import type { FeatureCollection, LineString } from 'geojson';
+import type { Feature, FeatureCollection, LineString } from 'geojson';
 
 const PATCH_FLAG = '__bfidMowingTrackLayerInstalled';
 const MAP_FLAG = '__bfidMowingTrackLayerInitialized';
 const SOURCE_ID = 'bfid-active-mowing-track';
+const ROUTE_LAYER_ID = 'bfid-canonical-mowing-route';
 const CASING_LAYER_ID = 'bfid-active-mowing-track-casing';
 const LINE_LAYER_ID = 'bfid-active-mowing-track-line';
 const EVENT_NAME = 'bfid:mowing-track';
@@ -12,30 +13,48 @@ const STATE_KEY = '__bfidMowingTrackState';
 type MowingTrackDetail = {
   active: boolean;
   coordinates: [number, number][];
+  routeCoordinates?: [number, number][];
 };
 
-function collection(coordinates: [number, number][]): FeatureCollection<LineString> {
-  return {
-    type: 'FeatureCollection',
-    features: coordinates.length >= 2
-      ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }]
-      : []
-  };
+function line(kind: 'route' | 'live', coordinates: [number, number][]): Feature<LineString> | null {
+  return coordinates.length >= 2
+    ? { type: 'Feature', properties: { kind }, geometry: { type: 'LineString', coordinates } }
+    : null;
+}
+
+function collection(detail: MowingTrackDetail): FeatureCollection<LineString> {
+  const features = [
+    line('route', detail.routeCoordinates ?? []),
+    detail.active ? line('live', detail.coordinates ?? []) : null
+  ].filter((feature): feature is Feature<LineString> => Boolean(feature));
+  return { type: 'FeatureCollection', features };
 }
 
 function currentTrack(): MowingTrackDetail {
   const value = (window as unknown as Record<string, unknown>)[STATE_KEY] as MowingTrackDetail | undefined;
-  return value?.active && Array.isArray(value.coordinates)
-    ? { active: true, coordinates: value.coordinates }
-    : { active: false, coordinates: [] };
+  return {
+    active: Boolean(value?.active),
+    coordinates: Array.isArray(value?.coordinates) ? value.coordinates : [],
+    routeCoordinates: Array.isArray(value?.routeCoordinates) ? value.routeCoordinates : []
+  };
 }
 
 function initialize(map: MapLibreMap): void {
-  const initial = currentTrack();
   if (!map.getSource(SOURCE_ID)) {
-    map.addSource(SOURCE_ID, {
-      type: 'geojson',
-      data: collection(initial.active ? initial.coordinates : [])
+    map.addSource(SOURCE_ID, { type: 'geojson', data: collection(currentTrack()) });
+  }
+  if (!map.getLayer(ROUTE_LAYER_ID)) {
+    map.addLayer({
+      id: ROUTE_LAYER_ID,
+      type: 'line',
+      source: SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'route'],
+      paint: {
+        'line-color': '#d9f99d',
+        'line-width': 4,
+        'line-opacity': 0.78,
+        'line-dasharray': [2, 1.5]
+      }
     });
   }
   if (!map.getLayer(CASING_LAYER_ID)) {
@@ -43,6 +62,7 @@ function initialize(map: MapLibreMap): void {
       id: CASING_LAYER_ID,
       type: 'line',
       source: SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'live'],
       paint: {
         'line-color': '#101806',
         'line-width': 10,
@@ -55,6 +75,7 @@ function initialize(map: MapLibreMap): void {
       id: LINE_LAYER_ID,
       type: 'line',
       source: SOURCE_ID,
+      filter: ['==', ['get', 'kind'], 'live'],
       paint: {
         'line-color': '#a3e635',
         'line-width': 6,
@@ -66,7 +87,11 @@ function initialize(map: MapLibreMap): void {
   const update = (event: Event): void => {
     const detail = (event as CustomEvent<MowingTrackDetail>).detail;
     const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
-    source?.setData(collection(detail?.active ? detail.coordinates ?? [] : []));
+    source?.setData(collection({
+      active: Boolean(detail?.active),
+      coordinates: detail?.coordinates ?? [],
+      routeCoordinates: detail?.routeCoordinates ?? []
+    }));
   };
 
   window.addEventListener(EVENT_NAME, update);
