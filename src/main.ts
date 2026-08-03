@@ -8,7 +8,13 @@ type Installer = {
   run: () => Promise<void>;
 };
 
+type BootBridge = {
+  stage?: string;
+  ready?: boolean;
+};
+
 const buildId = import.meta.env.VITE_BUILD_ID || 'dev-local';
+const bootBridge = window as Window & { __BFID_BOOT__?: BootBridge };
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.stack || error.message;
@@ -20,9 +26,24 @@ function errorText(error: unknown): string {
   }
 }
 
+function setBootStage(detailText: string, headingText = 'Starting BFID Mapping…'): void {
+  bootBridge.__BFID_BOOT__ ??= {};
+  bootBridge.__BFID_BOOT__.stage = detailText;
+
+  const boot = document.getElementById('bfid-boot');
+  if (!boot) return;
+  const heading = boot.querySelector<HTMLElement>('[data-boot-heading]');
+  const detail = boot.querySelector<HTMLElement>('[data-boot-detail]');
+  if (heading) heading.textContent = headingText;
+  if (detail) detail.textContent = detailText;
+}
+
 function reportFatalStartup(error: unknown): void {
   const message = errorText(error);
   console.error('BFID Mapping startup failed', error);
+
+  bootBridge.__BFID_BOOT__ ??= {};
+  bootBridge.__BFID_BOOT__.stage = message;
 
   const boot = document.getElementById('bfid-boot');
   if (!boot) return;
@@ -35,9 +56,59 @@ function reportFatalStartup(error: unknown): void {
 }
 
 function clearBootPanel(): void {
+  bootBridge.__BFID_BOOT__ ??= {};
+  bootBridge.__BFID_BOOT__.ready = true;
+
   const boot = document.getElementById('bfid-boot');
   if (!boot) return;
   window.requestAnimationFrame(() => boot.remove());
+}
+
+function installCompatibilityPolyfills(): void {
+  const arrayPrototype = Array.prototype as unknown as {
+    at?: (this: unknown[], index: number) => unknown;
+  };
+
+  if (!arrayPrototype.at) {
+    Object.defineProperty(Array.prototype, 'at', {
+      configurable: true,
+      writable: true,
+      value(this: unknown[], index: number): unknown {
+        const length = this.length >>> 0;
+        const relativeIndex = Math.trunc(index) || 0;
+        const resolvedIndex = relativeIndex < 0 ? length + relativeIndex : relativeIndex;
+        return resolvedIndex < 0 || resolvedIndex >= length ? undefined : this[resolvedIndex];
+      }
+    });
+  }
+
+  const cryptoObject = globalThis.crypto as (Crypto & { randomUUID?: () => string }) | undefined;
+  if (cryptoObject && !cryptoObject.randomUUID) {
+    Object.defineProperty(cryptoObject, 'randomUUID', {
+      configurable: true,
+      value(): string {
+        const bytes = new Uint8Array(16);
+        cryptoObject.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+      }
+    });
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(label)), milliseconds);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
 }
 
 async function installStartupPatches(): Promise<void> {
@@ -102,7 +173,7 @@ async function installStartupPatches(): Promise<void> {
 
   for (const installer of installers) {
     try {
-      await installer.run();
+      await withTimeout(installer.run(), 10_000, `${installer.name} startup timed out.`);
     } catch (error) {
       console.error(`Could not install ${installer.name}`, error);
     }
@@ -146,17 +217,29 @@ async function clearHostedPreviewCaches(): Promise<boolean> {
 
 async function start(): Promise<void> {
   try {
+    installCompatibilityPolyfills();
+    setBootStage('Application JavaScript loaded. Preparing the core interface.');
+
     const reloading = await clearHostedPreviewCaches();
     if (reloading) return;
 
-    await installStartupPatches();
+    setBootStage('Loading the core interface module.');
+    const { default: App } = await withTimeout(
+      import('./App.svelte'),
+      15_000,
+      'The core interface module did not load within 15 seconds.'
+    );
 
-    const { default: App } = await import('./App.svelte');
     const target = document.getElementById('app');
     if (!target) throw new Error('Application mount element is missing.');
 
+    setBootStage('Mounting the core interface.');
     mount(App, { target });
     clearBootPanel();
+
+    window.setTimeout(() => {
+      void installStartupPatches();
+    }, 0);
   } catch (error) {
     reportFatalStartup(error);
   }
