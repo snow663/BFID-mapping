@@ -1,5 +1,13 @@
 import { db, getSetting, putSetting } from './db';
 import {
+  cleanRoute,
+  completedDistanceMiles,
+  discardSessionTrack,
+  retainRecentSessions,
+  routeLengthMiles,
+  type RouteCoordinate
+} from './canonicalRoutes';
+import {
   chooseSprayStation,
   fetchStationWeather,
   selectedRig,
@@ -9,6 +17,7 @@ import {
   type SpraySettings,
   type WeatherSnapshot
 } from './sprayWeather';
+import type { TrackPoint } from './types';
 
 const TRACK_EVENT = 'bfid:spray-track';
 const TRACK_STATE_KEY = '__bfidSprayTrackState';
@@ -28,6 +37,11 @@ export type SprayWorkItem = {
   updatedAt: string;
   status: SprayWorkStatus;
   sessionIds: string[];
+  runCount?: number;
+  routeCoordinates?: RouteCoordinate[];
+  routeLengthMiles?: number;
+  routeRecordedAt?: string;
+  routeSourceSessionId?: string;
   completedAt?: string;
   nextReturnAt?: string;
   followUpAt?: string;
@@ -56,6 +70,15 @@ export type SpraySessionRecord = {
   weatherSnapshots?: WeatherSnapshot[];
   startWeather?: WeatherSnapshot;
   endWeather?: WeatherSnapshot;
+  durationMinutes?: number;
+  routeLengthMiles?: number;
+  completedDistanceMiles?: number;
+  completedPercent?: number;
+  routeEstablished?: boolean;
+  gpsPointsCaptured?: number;
+  gallonsUsed?: number;
+  gallonsPerMile?: number;
+  routeSpeedMph?: number;
 };
 
 export type SpraySessionState = {
@@ -65,7 +88,8 @@ export type SpraySessionState = {
   position: SprayPosition | null;
   pointCount: number;
   weatherCount: number;
-  coordinates: [number, number][];
+  coordinates: RouteCoordinate[];
+  routeCoordinates: RouteCoordinate[];
 };
 
 export type RecentSpraySession = SpraySessionRecord & {
@@ -86,7 +110,8 @@ let state: SpraySessionState = {
   position: null,
   pointCount: 0,
   weatherCount: 0,
-  coordinates: []
+  coordinates: [],
+  routeCoordinates: []
 };
 let watchId: number | null = null;
 let settings: SpraySettings | null = null;
@@ -94,14 +119,23 @@ let listener: ((state: SpraySessionState) => void) | null = null;
 let stopping = false;
 
 function publish(): void {
-  const snapshot = { ...state, coordinates: [...state.coordinates] };
+  const snapshot = {
+    ...state,
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
+  };
   listener?.(snapshot);
   (window as unknown as Record<string, unknown>)[TRACK_STATE_KEY] = {
     active: state.active,
-    coordinates: [...state.coordinates]
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
   };
   window.dispatchEvent(new CustomEvent(TRACK_EVENT, {
-    detail: { active: state.active, coordinates: [...state.coordinates] }
+    detail: {
+      active: state.active,
+      coordinates: [...state.coordinates],
+      routeCoordinates: [...state.routeCoordinates]
+    }
   }));
 }
 
@@ -133,9 +167,21 @@ function workLabel(segmentName: string | null, fix: SprayPosition): string {
   return `Spray site ${date} · ${fix.latitude.toFixed(4)}, ${fix.longitude.toFixed(4)}`;
 }
 
+function validRoute(value: unknown): RouteCoordinate[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((coordinate): coordinate is RouteCoordinate => Array.isArray(coordinate)
+      && coordinate.length >= 2
+      && Number.isFinite(Number(coordinate[0]))
+      && Number.isFinite(Number(coordinate[1])))
+    .map((coordinate) => [Number(coordinate[0]), Number(coordinate[1])]);
+}
+
 function normalizeWorkItem(value: Partial<SprayWorkItem>): SprayWorkItem | null {
   if (!value.id || !value.anchor || typeof value.anchor.longitude !== 'number' || typeof value.anchor.latitude !== 'number') return null;
   const createdAt = value.createdAt || new Date().toISOString();
+  const routeCoordinates = validRoute(value.routeCoordinates);
+  const measuredLength = Number(value.routeLengthMiles);
   return {
     id: value.id,
     label: value.label || 'Spray work item',
@@ -146,6 +192,15 @@ function normalizeWorkItem(value: Partial<SprayWorkItem>): SprayWorkItem | null 
     updatedAt: value.updatedAt || createdAt,
     status: value.status === 'needs-return' || value.status === 'completed' ? value.status : 'open',
     sessionIds: Array.isArray(value.sessionIds) ? value.sessionIds.filter((id): id is string => typeof id === 'string') : [],
+    runCount: Math.max(0, Math.round(Number(value.runCount) || value.sessionIds?.length || 0)),
+    routeCoordinates: routeCoordinates.length >= 2 ? routeCoordinates : undefined,
+    routeLengthMiles: Number.isFinite(measuredLength) && measuredLength > 0
+      ? measuredLength
+      : routeCoordinates.length >= 2
+        ? routeLengthMiles(routeCoordinates)
+        : undefined,
+    routeRecordedAt: value.routeRecordedAt,
+    routeSourceSessionId: value.routeSourceSessionId,
     completedAt: value.completedAt,
     nextReturnAt: value.nextReturnAt,
     followUpAt: value.followUpAt,
@@ -256,17 +311,19 @@ export async function startSpraySession(
       createdAt: now,
       updatedAt: now,
       status: 'open',
-      sessionIds: []
+      sessionIds: [],
+      runCount: 0
     };
   }
 
+  const sequence = (workItem.runCount ?? workItem.sessionIds.length) + 1;
   const session: SpraySessionRecord = {
     id: crypto.randomUUID(),
     activity: 'spraying',
     equipment: rig.name,
     startedAt: now,
     workItemId: workItem.id,
-    sequence: workItem.sessionIds.length + 1,
+    sequence,
     segmentId: segmentId || workItem.segmentId,
     segmentName: segmentName || workItem.segmentName,
     productName: nextSettings.productName || undefined,
@@ -286,6 +343,7 @@ export async function startSpraySession(
     status: 'open',
     nextReturnAt: undefined,
     followUpAt: undefined,
+    runCount: sequence,
     sessionIds: [...workItem.sessionIds, session.id],
     lastProductName: session.productName,
     lastRigProfileName: rig.name
@@ -300,7 +358,8 @@ export async function startSpraySession(
     position: firstFix,
     pointCount: 0,
     weatherCount: 0,
-    coordinates: []
+    coordinates: [],
+    routeCoordinates: [...(workItem.routeCoordinates ?? [])]
   };
   await savePoint(firstFix);
 
@@ -324,29 +383,70 @@ export async function startSpraySession(
   return state;
 }
 
-export async function stopSpraySession(outcome: SprayOutcome): Promise<SpraySessionState> {
+export async function stopSpraySession(outcome: SprayOutcome, gallonsUsed?: number): Promise<SpraySessionState> {
   if (!state.session || !state.workItem || stopping) return state;
   stopping = true;
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   watchId = null;
   try { await captureSprayWeather('end'); } catch { /* preserve session if end weather is unavailable */ }
 
+  const session = state.session;
   const endedAt = new Date().toISOString();
-  await db.trackSessions.update(state.session.id, { endedAt, outcome } as any);
+  const points = await db.trackPoints.where('sessionId').equals(session.id).sortBy('timestamp') as TrackPoint[];
+  const temporaryRoute = cleanRoute(points);
+  const temporaryMiles = routeLengthMiles(temporaryRoute);
+
+  let canonicalRoute = [...(state.workItem.routeCoordinates ?? [])];
+  let canonicalMiles = Number(state.workItem.routeLengthMiles) || routeLengthMiles(canonicalRoute);
+  let routeEstablished = false;
+  if (canonicalRoute.length < 2 && outcome === 'completed' && temporaryRoute.length >= 2 && temporaryMiles > 0) {
+    canonicalRoute = temporaryRoute;
+    canonicalMiles = temporaryMiles;
+    routeEstablished = true;
+  }
+
+  const distanceMiles = completedDistanceMiles(outcome, canonicalMiles, temporaryMiles);
+  const durationMinutes = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(session.startedAt).getTime()) / 60000));
+  const durationHours = durationMinutes / 60;
+  const normalizedGallons = Number(gallonsUsed);
+  const storedGallons = Number.isFinite(normalizedGallons) && normalizedGallons >= 0 ? normalizedGallons : undefined;
+  const gallonsPerMile = storedGallons !== undefined && distanceMiles > 0 ? storedGallons / distanceMiles : undefined;
+  const routeSpeedMph = durationHours > 0 ? distanceMiles / durationHours : undefined;
+  const completedPercent = canonicalMiles > 0 ? Math.min(100, distanceMiles / canonicalMiles * 100) : undefined;
+
+  await db.trackSessions.update(session.id, {
+    endedAt,
+    outcome,
+    durationMinutes,
+    routeLengthMiles: canonicalMiles || undefined,
+    completedDistanceMiles: distanceMiles,
+    completedPercent,
+    routeEstablished,
+    gpsPointsCaptured: points.length,
+    gallonsUsed: storedGallons,
+    gallonsPerMile,
+    routeSpeedMph
+  } as any);
+  await discardSessionTrack(session.id);
 
   const followUpDays = settings?.followUpDays ?? 30;
-  const workItem: SprayWorkItem = {
+  let workItem: SprayWorkItem = {
     ...state.workItem,
     updatedAt: endedAt,
     status: outcome === 'completed' ? 'completed' : outcome === 'needs-return' ? 'needs-return' : 'open',
+    routeCoordinates: canonicalRoute.length >= 2 ? canonicalRoute : state.workItem.routeCoordinates,
+    routeLengthMiles: canonicalMiles > 0 ? canonicalMiles : state.workItem.routeLengthMiles,
+    routeRecordedAt: routeEstablished ? endedAt : state.workItem.routeRecordedAt,
+    routeSourceSessionId: routeEstablished ? session.id : state.workItem.routeSourceSessionId,
     completedAt: outcome === 'completed' ? endedAt : state.workItem.completedAt,
     nextReturnAt: outcome === 'needs-return' ? tomorrowAtWorkStart(new Date(endedAt)) : undefined,
     followUpAt: outcome === 'completed' ? daysAfter(endedAt, followUpDays) : undefined,
     followUpAcknowledgedAt: undefined
   };
+  workItem = { ...workItem, sessionIds: await retainRecentSessions(workItem.sessionIds) };
   await updateWorkItem(workItem);
 
-  const segmentId = state.session.segmentId;
+  const segmentId = session.segmentId;
   if (segmentId) {
     const status: SprayStatus = outcome === 'completed' ? 'sprayed' : outcome === 'needs-return' ? 'needs-return' : 'partial';
     await db.segments.update(segmentId, { sprayStatus: status } as any);
@@ -359,7 +459,8 @@ export async function stopSpraySession(outcome: SprayOutcome): Promise<SpraySess
     position: state.position,
     pointCount: 0,
     weatherCount: 0,
-    coordinates: []
+    coordinates: [],
+    routeCoordinates: canonicalRoute
   };
   stopping = false;
   publish();
@@ -369,19 +470,25 @@ export async function stopSpraySession(outcome: SprayOutcome): Promise<SpraySess
 }
 
 export function getSpraySessionState(): SpraySessionState {
-  return { ...state, coordinates: [...state.coordinates] };
+  return {
+    ...state,
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
+  };
 }
 
-export async function getRecentSpraySessions(limit = 12): Promise<RecentSpraySession[]> {
+export async function getRecentSpraySessions(limit = 8): Promise<RecentSpraySession[]> {
   const sessions = (
     await db.trackSessions.where('activity').equals('spraying').toArray() as unknown as SpraySessionRecord[]
   )
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
     .slice(0, limit);
   return Promise.all(sessions.map(async (session) => {
-    const pointCount = await db.trackPoints.where('sessionId').equals(session.id).count();
+    const pointCount = session.gpsPointsCaptured
+      ?? await db.trackPoints.where('sessionId').equals(session.id).count();
     const end = session.endedAt ? new Date(session.endedAt).getTime() : Date.now();
-    const durationMinutes = Math.max(0, Math.round((end - new Date(session.startedAt).getTime()) / 60000));
+    const durationMinutes = session.durationMinutes
+      ?? Math.max(0, Math.round((end - new Date(session.startedAt).getTime()) / 60000));
     return { ...session, pointCount, durationMinutes };
   }));
 }
