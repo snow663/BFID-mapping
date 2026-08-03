@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
 const isTauriBuild = Boolean(process.env.TAURI_ENV_PLATFORM);
+const isAndroidBuild = process.env.TAURI_ENV_PLATFORM === 'android';
 const base = isGitHubPages ? '/BFID-mapping/' : './';
 
 const pwaPlugin = VitePWA({
@@ -46,13 +47,19 @@ export default defineConfig({
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
-    target:
-      process.env.TAURI_ENV_PLATFORM === 'android'
-        ? 'chrome90'
-        : process.env.TAURI_ENV_PLATFORM === 'windows'
-          ? 'chrome105'
-          : 'es2022',
+    target: isAndroidBuild
+      ? 'chrome80'
+      : process.env.TAURI_ENV_PLATFORM === 'windows'
+        ? 'chrome105'
+        : 'es2022',
+    modulePreload: !isTauriBuild,
+    cssCodeSplit: !isAndroidBuild,
     minify: process.env.TAURI_ENV_DEBUG ? false : 'esbuild',
-    sourcemap: Boolean(process.env.TAURI_ENV_DEBUG)
+    sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: isAndroidBuild
+      }
+    }
   }
 });
