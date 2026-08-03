@@ -83,6 +83,17 @@ export interface TrackSession {
   equipmentProfileId?: string;
   equipmentProfileName?: string;
   workNotes?: string;
+  durationMinutes?: number;
+  routeLengthMiles?: number;
+  completedDistanceMiles?: number;
+  completedPercent?: number;
+  routeEstablished?: boolean;
+  gpsPointsCaptured?: number;
+  gallonsUsed?: number;
+  gallonsPerMile?: number;
+  mowingAcres?: number;
+  acresPerHour?: number;
+  routeSpeedMph?: number;
 }
 
 export interface TrackPoint extends PositionFix {
