@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-geolocation": "^2.0.0",
     "@tauri-apps/plugin-notification": "^2.0.0",
     "dexie": "^4.0.0",
     "maplibre-gl": "^5.12.0",
