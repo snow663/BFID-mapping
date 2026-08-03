@@ -64,6 +64,52 @@ function clearBootPanel(): void {
   window.requestAnimationFrame(() => boot.remove());
 }
 
+function installSafeMutationObserver(): void {
+  const NativeMutationObserver = window.MutationObserver;
+  const taggedNative = NativeMutationObserver as typeof MutationObserver & { __bfidSafe?: boolean };
+  if (!NativeMutationObserver || taggedNative.__bfidSafe) return;
+
+  function keepRecord(record: MutationRecord): boolean {
+    if (record.type !== 'attributes') return true;
+    if (record.attributeName !== 'disabled' && record.attributeName !== 'hidden') return true;
+    if (!(record.target instanceof Element)) return true;
+
+    // Some Android WebView releases report a mutation when a boolean
+    // attribute is assigned the value it already has. Those records can feed
+    // observers that enforce the same state and starve the UI indefinitely.
+    return record.oldValue !== record.target.getAttribute(record.attributeName);
+  }
+
+  class SafeMutationObserver {
+    private readonly nativeObserver: MutationObserver;
+
+    constructor(callback: MutationCallback) {
+      this.nativeObserver = new NativeMutationObserver((records) => {
+        const filtered = records.filter(keepRecord);
+        if (filtered.length > 0) callback(filtered, this as unknown as MutationObserver);
+      });
+    }
+
+    observe(target: Node, options?: MutationObserverInit): void {
+      const guardedOptions = options?.attributes
+        ? { ...options, attributeOldValue: true }
+        : options;
+      this.nativeObserver.observe(target, guardedOptions);
+    }
+
+    disconnect(): void {
+      this.nativeObserver.disconnect();
+    }
+
+    takeRecords(): MutationRecord[] {
+      return this.nativeObserver.takeRecords().filter(keepRecord);
+    }
+  }
+
+  Object.defineProperty(SafeMutationObserver, '__bfidSafe', { value: true });
+  window.MutationObserver = SafeMutationObserver as unknown as typeof MutationObserver;
+}
+
 function installCompatibilityPolyfills(): void {
   const arrayPrototype = Array.prototype as unknown as {
     at?: (this: unknown[], index: number) => unknown;
@@ -96,6 +142,8 @@ function installCompatibilityPolyfills(): void {
       }
     });
   }
+
+  installSafeMutationObserver();
 }
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
