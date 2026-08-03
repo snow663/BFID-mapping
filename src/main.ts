@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
+import './lib/nativeGeolocation';
 
 type Installer = {
   name: string;
