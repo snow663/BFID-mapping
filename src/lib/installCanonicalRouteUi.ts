@@ -51,6 +51,12 @@ function summaryElement(id: string, after: Element | null): HTMLElement | null {
   return element;
 }
 
+function renderSummary(element: HTMLElement, signature: string, html: string): void {
+  if (element.dataset.routeSignature === signature) return;
+  element.dataset.routeSignature = signature;
+  element.innerHTML = html;
+}
+
 function ensureGallonsInput(): HTMLInputElement | null {
   const actions = document.querySelector<HTMLElement>('.bfid-spray-finish-actions');
   if (!actions) return null;
@@ -83,7 +89,7 @@ async function updateMowingSummary(): Promise<void> {
   const after = document.querySelector('.bfid-mowing-work-item-info');
   const element = summaryElement(MOWING_SUMMARY_ID, after);
   if (!element || !select || select.value === '__new__') {
-    if (element) element.innerHTML = '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>';
+    if (element) renderSummary(element, 'new', '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>');
     return;
   }
 
@@ -96,9 +102,11 @@ async function updateMowingSummary(): Promise<void> {
   const latestText = latest
     ? `Latest: ${latest.durationMinutes ?? 0} min${latestDistance === null ? '' : ` · ${latestDistance.toFixed(2)} mi`}${acresPerHour === null ? '' : ` · ${acresPerHour.toFixed(2)} acres/hr`}`
     : 'No compact job records yet.';
-  element.innerHTML = route === null
+  const signature = JSON.stringify([item.id, item.updatedAt, item.runCount, item.sessionIds, route, latest?.id, latest?.endedAt, acresPerHour]);
+  const html = route === null
     ? `<strong>Route awaiting first completed run</strong><span>${item.runCount ?? item.sessionIds.length} attempted run(s) · ${latestText}</span>`
     : `<strong>Canonical route: ${route.toFixed(2)} mi</strong><span>${item.runCount ?? item.sessionIds.length} total run(s) · ${item.sessionIds.length} recent record(s) retained · ${latestText}</span>`;
+  renderSummary(element, signature, html);
 }
 
 async function updateSpraySummary(): Promise<void> {
@@ -106,7 +114,7 @@ async function updateSpraySummary(): Promise<void> {
   const after = document.querySelector('.bfid-spray-work-item-info');
   const element = summaryElement(SPRAY_SUMMARY_ID, after);
   if (!element || !select || select.value === '__new__') {
-    if (element) element.innerHTML = '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>';
+    if (element) renderSummary(element, 'new', '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>');
     return;
   }
 
@@ -119,9 +127,11 @@ async function updateSpraySummary(): Promise<void> {
   const latestText = latest
     ? `Latest: ${latest.durationMinutes ?? 0} min${latestDistance === null ? '' : ` · ${latestDistance.toFixed(2)} mi`}${gallonsPerMile === null ? '' : ` · ${gallonsPerMile.toFixed(2)} gal/mi`}`
     : 'No compact job records yet.';
-  element.innerHTML = route === null
+  const signature = JSON.stringify([item.id, item.updatedAt, item.runCount, item.sessionIds, route, latest?.id, latest?.endedAt, gallonsPerMile]);
+  const html = route === null
     ? `<strong>Route awaiting first completed run</strong><span>${item.runCount ?? item.sessionIds.length} attempted run(s) · ${latestText}</span>`
     : `<strong>Canonical route: ${route.toFixed(2)} mi</strong><span>${item.runCount ?? item.sessionIds.length} total run(s) · ${item.sessionIds.length} recent record(s) retained · ${latestText}</span>`;
+  renderSummary(element, signature, html);
 }
 
 async function updateAll(): Promise<void> {
@@ -169,10 +179,14 @@ function install(): void {
     }
   }, true);
 
-  new MutationObserver(() => {
+  const mountTimer = window.setInterval(() => {
     ensureGallonsInput();
-    void updateAll();
-  }).observe(document.body, { childList: true, subtree: true });
+    if (document.querySelector('.mowing-work-item') && document.querySelector('.spray-work-item')) {
+      window.clearInterval(mountTimer);
+      void updateAll();
+    }
+  }, 250);
+  window.setTimeout(() => window.clearInterval(mountTimer), 15_000);
 
   window.addEventListener('bfid:compact-record-updated', () => void updateAll());
   window.setInterval(() => void updateAll(), 15_000);
