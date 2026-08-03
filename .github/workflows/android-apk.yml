@@ -178,5 +178,5 @@ jobs:
               sha
             });
 
-# Application target: 514dd6ea8838942e2c98b555974f1e378a9a7231
-# Trigger: android-startup-fix-2
+# Application target: 57a0ab247b5b8972a72a2431e5eb7aeae605aba9
+# Trigger: android-single-bundle-startup-3
