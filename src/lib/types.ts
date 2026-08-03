@@ -91,6 +91,7 @@ export interface TrackSession {
   gpsPointsCaptured?: number;
   gallonsUsed?: number;
   gallonsPerMile?: number;
+  gallonsPerHour?: number;
   mowingAcres?: number;
   acresPerHour?: number;
   routeSpeedMph?: number;
