@@ -188,3 +188,5 @@ export function installNativeGeolocationBridge(): void {
 
   globalState[INSTALL_FLAG] = true;
 }
+
+installNativeGeolocationBridge();
