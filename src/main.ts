@@ -3,6 +3,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import './map-overrides.css';
 import './lib/nativeGeolocation';
+import './lib/installCanonicalRouteUi';
 
 type Installer = {
   name: string;
@@ -74,10 +75,6 @@ function installSafeMutationObserver(): void {
     if (record.type !== 'attributes') return true;
     if (record.attributeName !== 'disabled' && record.attributeName !== 'hidden') return true;
     if (!(record.target instanceof Element)) return true;
-
-    // Some Android WebView releases report a mutation when a boolean
-    // attribute is assigned the value it already has. Those records can feed
-    // observers that enforce the same state and starve the UI indefinitely.
     return record.oldValue !== record.target.getAttribute(record.attributeName);
   }
 
