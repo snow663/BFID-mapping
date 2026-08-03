@@ -1,5 +1,13 @@
 import { db, getSetting, putSetting } from './db';
-import type { MowStatus, PositionFix } from './types';
+import {
+  cleanRoute,
+  completedDistanceMiles,
+  discardSessionTrack,
+  retainRecentSessions,
+  routeLengthMiles,
+  type RouteCoordinate
+} from './canonicalRoutes';
+import type { MowStatus, PositionFix, TrackPoint } from './types';
 
 const TRACK_EVENT = 'bfid:mowing-track';
 const TRACK_STATE_KEY = '__bfidMowingTrackState';
@@ -46,6 +54,11 @@ export type MowingWorkItem = {
   updatedAt: string;
   status: MowingWorkStatus;
   sessionIds: string[];
+  runCount?: number;
+  routeCoordinates?: RouteCoordinate[];
+  routeLengthMiles?: number;
+  routeRecordedAt?: string;
+  routeSourceSessionId?: string;
   completedAt?: string;
   nextReturnAt?: string;
   followUpAt?: string;
@@ -68,6 +81,15 @@ export type MowingSessionRecord = {
   equipmentProfile?: MowingEquipmentProfile;
   workNotes?: string;
   outcome?: MowingOutcome;
+  durationMinutes?: number;
+  routeLengthMiles?: number;
+  completedDistanceMiles?: number;
+  completedPercent?: number;
+  routeEstablished?: boolean;
+  gpsPointsCaptured?: number;
+  mowingAcres?: number;
+  acresPerHour?: number;
+  routeSpeedMph?: number;
 };
 
 export type MowingSessionState = {
@@ -76,7 +98,8 @@ export type MowingSessionState = {
   workItem: MowingWorkItem | null;
   position: PositionFix | null;
   pointCount: number;
-  coordinates: [number, number][];
+  coordinates: RouteCoordinate[];
+  routeCoordinates: RouteCoordinate[];
 };
 
 export type RecentMowingSession = MowingSessionRecord & {
@@ -96,7 +119,8 @@ let state: MowingSessionState = {
   workItem: null,
   position: null,
   pointCount: 0,
-  coordinates: []
+  coordinates: [],
+  routeCoordinates: []
 };
 let watchId: number | null = null;
 let settings: MowingSettings | null = null;
@@ -138,14 +162,23 @@ export function selectedMowingEquipment(value: MowingSettings): MowingEquipmentP
 }
 
 function publish(): void {
-  const snapshot = { ...state, coordinates: [...state.coordinates] };
+  const snapshot = {
+    ...state,
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
+  };
   listener?.(snapshot);
   (window as unknown as Record<string, unknown>)[TRACK_STATE_KEY] = {
     active: state.active,
-    coordinates: [...state.coordinates]
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
   };
   window.dispatchEvent(new CustomEvent(TRACK_EVENT, {
-    detail: { active: state.active, coordinates: [...state.coordinates] }
+    detail: {
+      active: state.active,
+      coordinates: [...state.coordinates],
+      routeCoordinates: [...state.routeCoordinates]
+    }
   }));
 }
 
@@ -177,9 +210,21 @@ function workLabel(segmentName: string | null, fix: PositionFix): string {
   return `Mowing site ${date} · ${fix.latitude.toFixed(4)}, ${fix.longitude.toFixed(4)}`;
 }
 
+function validRoute(value: unknown): RouteCoordinate[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((coordinate): coordinate is RouteCoordinate => Array.isArray(coordinate)
+      && coordinate.length >= 2
+      && Number.isFinite(Number(coordinate[0]))
+      && Number.isFinite(Number(coordinate[1])))
+    .map((coordinate) => [Number(coordinate[0]), Number(coordinate[1])]);
+}
+
 function normalizeWorkItem(value: Partial<MowingWorkItem>): MowingWorkItem | null {
   if (!value.id || !value.anchor || typeof value.anchor.longitude !== 'number' || typeof value.anchor.latitude !== 'number') return null;
   const createdAt = value.createdAt || new Date().toISOString();
+  const routeCoordinates = validRoute(value.routeCoordinates);
+  const measuredLength = Number(value.routeLengthMiles);
   return {
     id: value.id,
     label: value.label || 'Mowing work item',
@@ -190,6 +235,15 @@ function normalizeWorkItem(value: Partial<MowingWorkItem>): MowingWorkItem | nul
     updatedAt: value.updatedAt || createdAt,
     status: value.status === 'needs-return' || value.status === 'completed' ? value.status : 'open',
     sessionIds: Array.isArray(value.sessionIds) ? value.sessionIds.filter((id): id is string => typeof id === 'string') : [],
+    runCount: Math.max(0, Math.round(Number(value.runCount) || value.sessionIds?.length || 0)),
+    routeCoordinates: routeCoordinates.length >= 2 ? routeCoordinates : undefined,
+    routeLengthMiles: Number.isFinite(measuredLength) && measuredLength > 0
+      ? measuredLength
+      : routeCoordinates.length >= 2
+        ? routeLengthMiles(routeCoordinates)
+        : undefined,
+    routeRecordedAt: value.routeRecordedAt,
+    routeSourceSessionId: value.routeSourceSessionId,
     completedAt: value.completedAt,
     nextReturnAt: value.nextReturnAt,
     followUpAt: value.followUpAt,
@@ -273,17 +327,19 @@ export async function startMowingSession(
       createdAt: now,
       updatedAt: now,
       status: 'open',
-      sessionIds: []
+      sessionIds: [],
+      runCount: 0
     };
   }
 
+  const sequence = (workItem.runCount ?? workItem.sessionIds.length) + 1;
   const session: MowingSessionRecord = {
     id: crypto.randomUUID(),
     activity: 'mowing',
     equipment: equipmentProfile.name,
     startedAt: now,
     workItemId: workItem.id,
-    sequence: workItem.sessionIds.length + 1,
+    sequence,
     segmentId: segmentId || workItem.segmentId,
     segmentName: segmentName || workItem.segmentName,
     equipmentProfileId: equipmentProfile.id,
@@ -300,6 +356,7 @@ export async function startMowingSession(
     status: 'open',
     nextReturnAt: undefined,
     followUpAt: undefined,
+    runCount: sequence,
     sessionIds: [...workItem.sessionIds, session.id],
     lastEquipmentName: equipmentProfile.name
   };
@@ -312,7 +369,8 @@ export async function startMowingSession(
     workItem,
     position: firstFix,
     pointCount: 0,
-    coordinates: []
+    coordinates: [],
+    routeCoordinates: [...(workItem.routeCoordinates ?? [])]
   };
   await savePoint(firstFix);
 
@@ -341,24 +399,65 @@ export async function stopMowingSession(outcome: MowingOutcome): Promise<MowingS
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   watchId = null;
 
+  const session = state.session;
   const endedAt = new Date().toISOString();
-  await db.trackSessions.update(state.session.id, { endedAt, outcome } as any);
+  const points = await db.trackPoints.where('sessionId').equals(session.id).sortBy('timestamp') as TrackPoint[];
+  const temporaryRoute = cleanRoute(points);
+  const temporaryMiles = routeLengthMiles(temporaryRoute);
+
+  let canonicalRoute = [...(state.workItem.routeCoordinates ?? [])];
+  let canonicalMiles = Number(state.workItem.routeLengthMiles) || routeLengthMiles(canonicalRoute);
+  let routeEstablished = false;
+  if (canonicalRoute.length < 2 && outcome === 'completed' && temporaryRoute.length >= 2 && temporaryMiles > 0) {
+    canonicalRoute = temporaryRoute;
+    canonicalMiles = temporaryMiles;
+    routeEstablished = true;
+  }
+
+  const distanceMiles = completedDistanceMiles(outcome, canonicalMiles, temporaryMiles);
+  const durationMinutes = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(session.startedAt).getTime()) / 60000));
+  const durationHours = durationMinutes / 60;
+  const widthFeet = session.equipmentProfile?.cuttingWidthFeet ?? null;
+  const mowingAcres = widthFeet && distanceMiles > 0 ? distanceMiles * 5280 * widthFeet / 43560 : undefined;
+  const acresPerHour = mowingAcres !== undefined && durationHours > 0 ? mowingAcres / durationHours : undefined;
+  const routeSpeedMph = durationHours > 0 ? distanceMiles / durationHours : undefined;
+  const completedPercent = canonicalMiles > 0 ? Math.min(100, distanceMiles / canonicalMiles * 100) : undefined;
+
+  await db.trackSessions.update(session.id, {
+    endedAt,
+    outcome,
+    durationMinutes,
+    routeLengthMiles: canonicalMiles || undefined,
+    completedDistanceMiles: distanceMiles,
+    completedPercent,
+    routeEstablished,
+    gpsPointsCaptured: points.length,
+    mowingAcres,
+    acresPerHour,
+    routeSpeedMph
+  } as any);
+  await discardSessionTrack(session.id);
 
   const followUpDays = settings?.followUpDays ?? 30;
-  const workItem: MowingWorkItem = {
+  let workItem: MowingWorkItem = {
     ...state.workItem,
     updatedAt: endedAt,
     status: outcome === 'completed' ? 'completed' : outcome === 'needs-return' ? 'needs-return' : 'open',
+    routeCoordinates: canonicalRoute.length >= 2 ? canonicalRoute : state.workItem.routeCoordinates,
+    routeLengthMiles: canonicalMiles > 0 ? canonicalMiles : state.workItem.routeLengthMiles,
+    routeRecordedAt: routeEstablished ? endedAt : state.workItem.routeRecordedAt,
+    routeSourceSessionId: routeEstablished ? session.id : state.workItem.routeSourceSessionId,
     completedAt: outcome === 'completed' ? endedAt : state.workItem.completedAt,
     nextReturnAt: outcome === 'needs-return' ? tomorrowAtWorkStart(new Date(endedAt)) : undefined,
     followUpAt: outcome === 'completed' ? daysAfter(endedAt, followUpDays) : undefined,
     followUpAcknowledgedAt: undefined
   };
+  workItem = { ...workItem, sessionIds: await retainRecentSessions(workItem.sessionIds) };
   await updateWorkItem(workItem);
 
-  if (state.session.segmentId) {
+  if (session.segmentId) {
     const mowStatus: MowStatus = outcome === 'completed' ? 'mowed' : outcome === 'needs-return' ? 'needs-return' : 'partial';
-    await db.segments.update(state.session.segmentId, { mowStatus });
+    await db.segments.update(session.segmentId, { mowStatus });
   }
 
   state = {
@@ -367,7 +466,8 @@ export async function stopMowingSession(outcome: MowingOutcome): Promise<MowingS
     workItem: null,
     position: state.position,
     pointCount: 0,
-    coordinates: []
+    coordinates: [],
+    routeCoordinates: canonicalRoute
   };
   stopping = false;
   publish();
@@ -377,10 +477,14 @@ export async function stopMowingSession(outcome: MowingOutcome): Promise<MowingS
 }
 
 export function getMowingSessionState(): MowingSessionState {
-  return { ...state, coordinates: [...state.coordinates] };
+  return {
+    ...state,
+    coordinates: [...state.coordinates],
+    routeCoordinates: [...state.routeCoordinates]
+  };
 }
 
-export async function getRecentMowingSessions(limit = 12): Promise<RecentMowingSession[]> {
+export async function getRecentMowingSessions(limit = 8): Promise<RecentMowingSession[]> {
   const sessions = (
     await db.trackSessions.where('activity').equals('mowing').toArray() as unknown as MowingSessionRecord[]
   )
@@ -388,9 +492,11 @@ export async function getRecentMowingSessions(limit = 12): Promise<RecentMowingS
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
     .slice(0, limit);
   return Promise.all(sessions.map(async (session) => {
-    const pointCount = await db.trackPoints.where('sessionId').equals(session.id).count();
+    const pointCount = session.gpsPointsCaptured
+      ?? await db.trackPoints.where('sessionId').equals(session.id).count();
     const end = session.endedAt ? new Date(session.endedAt).getTime() : Date.now();
-    const durationMinutes = Math.max(0, Math.round((end - new Date(session.startedAt).getTime()) / 60000));
+    const durationMinutes = session.durationMinutes
+      ?? Math.max(0, Math.round((end - new Date(session.startedAt).getTime()) / 60000));
     return { ...session, pointCount, durationMinutes };
   }));
 }
