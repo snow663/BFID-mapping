@@ -1,3 +1,4 @@
+import './nativeGeolocation';
 import { Map as MapLibreMap, type IControl } from 'maplibre-gl';
 
 const PATCH_FLAG = '__bfidGpsFollowPatchInstalled';
