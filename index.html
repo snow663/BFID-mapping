@@ -44,44 +44,76 @@
     <div id="bfid-boot" role="status" aria-live="polite">
       <div>
         <strong data-boot-heading>Starting BFID Mapping…</strong>
-        <pre data-boot-detail>Loading the local application bundle.</pre>
+        <pre data-boot-detail>Android page loaded. Waiting for the application JavaScript.</pre>
       </div>
     </div>
     <script>
       (function () {
-        var timer = window.setTimeout(function () {
+        var startedAt = Date.now();
+        var state = window.__BFID_BOOT__ = window.__BFID_BOOT__ || {};
+        var intervalId;
+
+        function elements() {
           var boot = document.getElementById('bfid-boot');
-          if (!boot) return;
-          boot.className = 'failed';
-          var heading = boot.querySelector('[data-boot-heading]');
-          var detail = boot.querySelector('[data-boot-detail]');
-          if (heading) heading.textContent = 'BFID Mapping startup stalled';
-          if (detail) detail.textContent = 'The Android WebView loaded the page, but the application bundle did not finish starting within 15 seconds.';
-        }, 15000);
+          return {
+            boot: boot,
+            heading: boot && boot.querySelector('[data-boot-heading]'),
+            detail: boot && boot.querySelector('[data-boot-detail]')
+          };
+        }
+
+        function fail(title, message) {
+          var parts = elements();
+          if (!parts.boot) return;
+          parts.boot.className = 'failed';
+          if (parts.heading) parts.heading.textContent = title;
+          if (parts.detail) parts.detail.textContent = message;
+          if (intervalId) window.clearInterval(intervalId);
+        }
+
+        function tick() {
+          var parts = elements();
+          if (!parts.boot || state.ready) {
+            if (intervalId) window.clearInterval(intervalId);
+            return;
+          }
+
+          var elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+          var stage = state.stage || 'Android page loaded. Waiting for the application JavaScript.';
+          if (parts.detail) parts.detail.textContent = stage + '\n\nElapsed: ' + elapsedSeconds + ' seconds';
+
+          if (elapsedSeconds >= 20) {
+            fail(
+              'BFID Mapping startup stalled',
+              stage + '\n\nThe last startup phase did not finish within 20 seconds.'
+            );
+          }
+        }
 
         window.addEventListener('error', function (event) {
-          window.clearTimeout(timer);
-          var boot = document.getElementById('bfid-boot');
-          if (!boot) return;
-          boot.className = 'failed';
-          var heading = boot.querySelector('[data-boot-heading]');
-          var detail = boot.querySelector('[data-boot-detail]');
+          var target = event && event.target;
+          var resource = target && (target.src || target.href);
           var source = event && event.filename ? '\n' + event.filename + ':' + (event.lineno || 0) : '';
-          if (heading) heading.textContent = 'BFID Mapping startup error';
-          if (detail) detail.textContent = (event && event.message ? event.message : 'A startup resource failed to load.') + source;
+          fail(
+            'BFID Mapping startup error',
+            event && event.message
+              ? event.message + source
+              : resource
+                ? 'A startup resource failed to load:\n' + resource
+                : 'A startup resource failed to load.'
+          );
         }, true);
 
         window.addEventListener('unhandledrejection', function (event) {
-          window.clearTimeout(timer);
-          var boot = document.getElementById('bfid-boot');
-          if (!boot) return;
-          boot.className = 'failed';
-          var heading = boot.querySelector('[data-boot-heading]');
-          var detail = boot.querySelector('[data-boot-detail]');
           var reason = event && event.reason;
-          if (heading) heading.textContent = 'BFID Mapping startup rejection';
-          if (detail) detail.textContent = reason && reason.stack ? reason.stack : String(reason || 'Unknown rejected startup operation.');
+          fail(
+            'BFID Mapping startup rejection',
+            reason && reason.stack ? reason.stack : String(reason || 'Unknown rejected startup operation.')
+          );
         });
+
+        tick();
+        intervalId = window.setInterval(tick, 1000);
       })();
     </script>
     <script type="module" src="/src/main.ts"></script>
