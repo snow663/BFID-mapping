@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Default desktop and mobile capability for BFID Mapping",
   "windows": ["main"],
-  "permissions": ["core:default", "notification:default"]
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "geolocation:allow-check-permissions",
+    "geolocation:allow-request-permissions",
+    "geolocation:allow-get-current-position",
+    "geolocation:allow-watch-position",
+    "geolocation:allow-clear-watch"
+  ]
 }
