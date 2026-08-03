@@ -1,5 +1,9 @@
 import { db } from './db';
-import { loadMowingWorkItems, type MowingWorkItem } from './mowingSession';
+import {
+  getMowingSessionState,
+  loadMowingWorkItems,
+  type MowingWorkItem
+} from './mowingSession';
 import {
   getSpraySessionState,
   loadSprayWorkItems,
@@ -64,6 +68,7 @@ function renderSummary(element: HTMLElement, signature: string, html: string): v
 }
 
 function publishMowingRoute(item: MowingWorkItem | null): void {
+  if (getMowingSessionState().active) return;
   window.dispatchEvent(new CustomEvent('bfid:mowing-track', {
     detail: {
       active: false,
@@ -74,6 +79,7 @@ function publishMowingRoute(item: MowingWorkItem | null): void {
 }
 
 function publishSprayRoute(item: SprayWorkItem | null): void {
+  if (getSpraySessionState().active) return;
   window.dispatchEvent(new CustomEvent('bfid:spray-track', {
     detail: {
       active: false,
