@@ -1,6 +1,11 @@
 import { db } from './db';
-import { loadMowingWorkItems } from './mowingSession';
-import { getSpraySessionState, loadSprayWorkItems, type SpraySessionRecord } from './spraySession';
+import { loadMowingWorkItems, type MowingWorkItem } from './mowingSession';
+import {
+  getSpraySessionState,
+  loadSprayWorkItems,
+  type SpraySessionRecord,
+  type SprayWorkItem
+} from './spraySession';
 import type { TrackSession } from './types';
 
 const FLAG = '__bfidCanonicalRouteUiInstalled';
@@ -8,6 +13,7 @@ const SPRAY_SUMMARY_ID = 'bfid-spray-route-summary';
 const MOWING_SUMMARY_ID = 'bfid-mowing-route-summary';
 
 function number(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -57,6 +63,26 @@ function renderSummary(element: HTMLElement, signature: string, html: string): v
   element.innerHTML = html;
 }
 
+function publishMowingRoute(item: MowingWorkItem | null): void {
+  window.dispatchEvent(new CustomEvent('bfid:mowing-track', {
+    detail: {
+      active: false,
+      coordinates: [],
+      routeCoordinates: item?.routeCoordinates ?? []
+    }
+  }));
+}
+
+function publishSprayRoute(item: SprayWorkItem | null): void {
+  window.dispatchEvent(new CustomEvent('bfid:spray-track', {
+    detail: {
+      active: false,
+      coordinates: [],
+      routeCoordinates: item?.routeCoordinates ?? []
+    }
+  }));
+}
+
 function ensureGallonsInput(): HTMLInputElement | null {
   const actions = document.querySelector<HTMLElement>('.bfid-spray-finish-actions');
   if (!actions) return null;
@@ -72,7 +98,7 @@ function ensureGallonsInput(): HTMLInputElement | null {
   input.min = '0';
   input.step = '0.1';
   input.inputMode = 'decimal';
-  input.placeholder = 'Enter at finish for gal/mi';
+  input.placeholder = 'Optional; calculates gal/mi and gal/hr';
   label.append(input);
   actions.prepend(label);
   return input;
@@ -89,12 +115,17 @@ async function updateMowingSummary(): Promise<void> {
   const after = document.querySelector('.bfid-mowing-work-item-info');
   const element = summaryElement(MOWING_SUMMARY_ID, after);
   if (!element || !select || select.value === '__new__') {
+    publishMowingRoute(null);
     if (element) renderSummary(element, 'new', '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>');
     return;
   }
 
   const item = (await loadMowingWorkItems()).find((candidate) => candidate.id === select.value);
-  if (!item) return;
+  if (!item) {
+    publishMowingRoute(null);
+    return;
+  }
+  publishMowingRoute(item);
   const latest = await latestSession(item.sessionIds);
   const route = number(item.routeLengthMiles);
   const latestDistance = number(latest?.completedDistanceMiles);
@@ -114,20 +145,26 @@ async function updateSpraySummary(): Promise<void> {
   const after = document.querySelector('.bfid-spray-work-item-info');
   const element = summaryElement(SPRAY_SUMMARY_ID, after);
   if (!element || !select || select.value === '__new__') {
+    publishSprayRoute(null);
     if (element) renderSummary(element, 'new', '<strong>Canonical route not selected</strong><span>The first completed run at a new location records the permanent route.</span>');
     return;
   }
 
   const item = (await loadSprayWorkItems()).find((candidate) => candidate.id === select.value);
-  if (!item) return;
+  if (!item) {
+    publishSprayRoute(null);
+    return;
+  }
+  publishSprayRoute(item);
   const latest = await latestSession(item.sessionIds);
   const route = number(item.routeLengthMiles);
   const latestDistance = number(latest?.completedDistanceMiles);
   const gallonsPerMile = number(latest?.gallonsPerMile);
+  const gallonsPerHour = number(latest?.gallonsPerHour);
   const latestText = latest
-    ? `Latest: ${latest.durationMinutes ?? 0} min${latestDistance === null ? '' : ` · ${latestDistance.toFixed(2)} mi`}${gallonsPerMile === null ? '' : ` · ${gallonsPerMile.toFixed(2)} gal/mi`}`
+    ? `Latest: ${latest.durationMinutes ?? 0} min${latestDistance === null ? '' : ` · ${latestDistance.toFixed(2)} mi`}${gallonsPerMile === null ? '' : ` · ${gallonsPerMile.toFixed(2)} gal/mi`}${gallonsPerHour === null ? '' : ` · ${gallonsPerHour.toFixed(2)} gal/hr`}`
     : 'No compact job records yet.';
-  const signature = JSON.stringify([item.id, item.updatedAt, item.runCount, item.sessionIds, route, latest?.id, latest?.endedAt, gallonsPerMile]);
+  const signature = JSON.stringify([item.id, item.updatedAt, item.runCount, item.sessionIds, route, latest?.id, latest?.endedAt, gallonsPerMile, gallonsPerHour]);
   const html = route === null
     ? `<strong>Route awaiting first completed run</strong><span>${item.runCount ?? item.sessionIds.length} attempted run(s) · ${latestText}</span>`
     : `<strong>Canonical route: ${route.toFixed(2)} mi</strong><span>${item.runCount ?? item.sessionIds.length} total run(s) · ${item.sessionIds.length} recent record(s) retained · ${latestText}</span>`;
@@ -144,9 +181,11 @@ async function applyGallons(sessionId: string, gallons: number): Promise<void> {
     const session = await db.trackSessions.get(sessionId) as unknown as SpraySessionRecord | undefined;
     if (session?.endedAt) {
       const distance = number(session.completedDistanceMiles) ?? 0;
+      const durationHours = (number(session.durationMinutes) ?? 0) / 60;
       await db.trackSessions.update(sessionId, {
         gallonsUsed: gallons,
-        gallonsPerMile: distance > 0 ? gallons / distance : undefined
+        gallonsPerMile: distance > 0 ? gallons / distance : undefined,
+        gallonsPerHour: durationHours > 0 ? gallons / durationHours : undefined
       } as any);
       const input = document.querySelector<HTMLInputElement>('.spray-gallons-used');
       if (input) input.value = '';
