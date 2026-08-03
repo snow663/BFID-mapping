@@ -178,5 +178,5 @@ jobs:
               sha
             });
 
-# Application target: b68fc19ea026b19a09a6e097215344e5ee499b65
-# Trigger: android-canonical-route-storage-final-11
+# Application target: f24a36eefa81769ffc36b31d4b404ac6f4967267
+# Trigger: android-canonical-route-compact-history-12
