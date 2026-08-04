@@ -1,15 +1,21 @@
 import { Map as MapLibreMap } from 'maplibre-gl';
 
 const PATCH_FLAG = '__bfidRoadLabelOrderingInstalled';
-const ROAD_LAYER_ID = 'sd-road-label-overlay';
+const REFERENCE_LAYER_IDS = [
+  'reference-hydrography',
+  'reference-road-labels',
+  'reference-place-labels'
+] as const;
 const PROJECT_LAYER_ID = 'segments-casing';
 
-function restoreRoadLabelOrder(map: MapLibreMap): void {
-  if (!map.getLayer(ROAD_LAYER_ID) || !map.getLayer(PROJECT_LAYER_ID)) return;
+function restoreReferenceOrder(map: MapLibreMap): void {
+  if (!map.getLayer(PROJECT_LAYER_ID)) return;
 
-  // Keep the transparent road/label overlay above aerial, slope and hillshade
-  // rasters, but below BFID operational lines and symbols.
-  map.moveLayer(ROAD_LAYER_ID, PROJECT_LAYER_ID);
+  // Public raster overlays remain above the aerial imagery but below local
+  // BFID operational lines and the local line-name symbol layer.
+  for (const layerId of REFERENCE_LAYER_IDS) {
+    if (map.getLayer(layerId)) map.moveLayer(layerId, PROJECT_LAYER_ID);
+  }
 }
 
 export function installRoadLabelOrderingPatch(): void {
@@ -22,9 +28,9 @@ export function installRoadLabelOrderingPatch(): void {
     const result = originalAddLayer.apply(this, args);
     queueMicrotask(() => {
       try {
-        restoreRoadLabelOrder(this);
+        restoreReferenceOrder(this);
       } catch (error) {
-        console.warn('Could not restore road-label layer order', error);
+        console.warn('Could not restore reference-label layer order', error);
       }
     });
     return result;
@@ -33,7 +39,7 @@ export function installRoadLabelOrderingPatch(): void {
   const originalSetStyle = prototype.setStyle as (...args: any[]) => MapLibreMap;
   prototype.setStyle = function patchedSetStyle(this: MapLibreMap, ...args: any[]): MapLibreMap {
     const result = originalSetStyle.apply(this, args);
-    this.once('idle', () => restoreRoadLabelOrder(this));
+    this.once('idle', () => restoreReferenceOrder(this));
     return result;
   };
 }
