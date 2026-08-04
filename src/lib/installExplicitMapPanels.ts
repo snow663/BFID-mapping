@@ -2,18 +2,14 @@ const PATCH_FLAG = '__bfidExplicitMapPanelsInstalled';
 const STYLE_ID = 'bfid-explicit-map-panel-styles';
 const BACKDROP_ID = 'bfid-map-panel-backdrop';
 
+// The Layers menu deliberately is not included here. It is owned entirely by
+// LayerMenuControl so checkbox taps cannot be intercepted by two controllers.
 const PANEL_SPECS = [
   {
     controlClass: 'bfid-recon-control',
     buttonClass: 'bfid-recon-button',
     panelClass: 'bfid-recon-panel',
-    title: 'Irrigation reconnaissance'
-  },
-  {
-    controlClass: 'bfid-layer-control',
-    buttonClass: 'bfid-layer-button',
-    panelClass: 'bfid-layer-menu',
-    title: 'Visible map elements'
+    title: 'Add selected reference line'
   },
   {
     controlClass: 'bfid-import-control',
@@ -31,7 +27,7 @@ type PanelHome = {
 };
 
 const panelHomes = new WeakMap<HTMLElement, PanelHome>();
-let syncQueued = false;
+const observedPanels = new WeakSet<HTMLElement>();
 
 function isMobileViewport(): boolean {
   return window.matchMedia('(max-width: 900px), (pointer: coarse) and (max-width: 1200px)').matches;
@@ -131,11 +127,8 @@ function specForPanel(panel: Element): PanelSpec | undefined {
 }
 
 function findPanel(spec: PanelSpec, control?: HTMLElement | null): HTMLElement | null {
-  return control?.querySelector<HTMLElement>(`.${spec.panelClass}`) ?? document.querySelector<HTMLElement>(`.${spec.panelClass}`);
-}
-
-function findControl(spec: PanelSpec, panel?: HTMLElement): HTMLElement | null {
-  return panelHomes.get(panel ?? document.createElement('div'))?.control ?? document.querySelector<HTMLElement>(`.${spec.controlClass}`);
+  return control?.querySelector<HTMLElement>(`.${spec.panelClass}`) ??
+    document.querySelector<HTMLElement>(`.${spec.panelClass}`);
 }
 
 function ensurePanelHeader(panel: HTMLElement, spec: PanelSpec): void {
@@ -167,15 +160,6 @@ function restorePanel(panel: HTMLElement): void {
   panelHomes.delete(panel);
 }
 
-function closePanel(panel: HTMLElement): void {
-  const spec = specForPanel(panel);
-  const home = panelHomes.get(panel);
-  const control = home?.control ?? (spec ? document.querySelector<HTMLElement>(`.${spec.controlClass}`) : null);
-  if (!panel.hidden) panel.hidden = true;
-  restorePanel(panel);
-  control?.querySelector<HTMLButtonElement>(spec ? `.${spec.buttonClass}` : 'button')?.setAttribute('aria-expanded', 'false');
-}
-
 function visiblePanels(): HTMLElement[] {
   return PANEL_SPECS
     .map((spec) => document.querySelector<HTMLElement>(`.${spec.panelClass}`))
@@ -183,15 +167,24 @@ function visiblePanels(): HTMLElement[] {
 }
 
 function syncBackdrop(): void {
-  const open = visiblePanels().length > 0;
   const backdrop = getBackdrop();
-  const shouldBeHidden = !open;
+  const shouldHide = visiblePanels().length === 0;
+  if (backdrop.hidden !== shouldHide) backdrop.hidden = shouldHide;
+  document.body.classList.toggle('bfid-explicit-panel-open', !shouldHide);
+}
 
-  // MutationObserver watches the hidden attribute. Android WebView can emit a
-  // mutation even when the same boolean value is assigned again, so only
-  // write when the state genuinely changes or this callback loops forever.
-  if (backdrop.hidden !== shouldBeHidden) backdrop.hidden = shouldBeHidden;
-  document.body.classList.toggle('bfid-explicit-panel-open', open);
+function closePanel(panel: HTMLElement): void {
+  const spec = specForPanel(panel);
+  const home = panelHomes.get(panel);
+  const control = home?.control ??
+    (spec ? document.querySelector<HTMLElement>(`.${spec.controlClass}`) : null);
+
+  if (!panel.hidden) panel.hidden = true;
+  restorePanel(panel);
+  if (spec) {
+    control?.querySelector<HTMLButtonElement>(`.${spec.buttonClass}`)?.setAttribute('aria-expanded', 'false');
+  }
+  syncBackdrop();
 }
 
 function closeAllPanels(except?: HTMLElement): void {
@@ -202,9 +195,21 @@ function closeAllPanels(except?: HTMLElement): void {
   syncBackdrop();
 }
 
+function observePanel(panel: HTMLElement): void {
+  if (observedPanels.has(panel)) return;
+  observedPanels.add(panel);
+  const observer = new MutationObserver(() => {
+    if (!panel.hidden) return;
+    restorePanel(panel);
+    syncBackdrop();
+  });
+  observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+}
+
 function openPanel(control: HTMLElement, panel: HTMLElement, spec: PanelSpec): void {
   closeAllPanels(panel);
   ensurePanelHeader(panel, spec);
+  observePanel(panel);
 
   if (!panelHomes.has(panel)) {
     panelHomes.set(panel, { control, nextSibling: panel.nextSibling });
@@ -219,21 +224,6 @@ function openPanel(control: HTMLElement, panel: HTMLElement, spec: PanelSpec): v
   control.querySelector<HTMLButtonElement>(`.${spec.buttonClass}`)?.setAttribute('aria-expanded', 'true');
   syncBackdrop();
   panel.scrollTop = 0;
-  panel.querySelector<HTMLButtonElement>('.bfid-explicit-panel-close')?.focus({ preventScroll: true });
-}
-
-function queueSync(): void {
-  if (syncQueued) return;
-  syncQueued = true;
-  queueMicrotask(() => {
-    syncQueued = false;
-    for (const spec of PANEL_SPECS) {
-      const panel = document.querySelector<HTMLElement>(`.${spec.panelClass}`);
-      if (!panel) continue;
-      if (panel.hidden && panelHomes.has(panel)) restorePanel(panel);
-    }
-    syncBackdrop();
-  });
 }
 
 export function installExplicitMapPanels(): void {
@@ -257,17 +247,16 @@ export function installExplicitMapPanels(): void {
         return;
       }
 
-      const close = target.closest('.bfid-explicit-panel-close');
-      if (close) {
+      const explicitClose = target.closest('.bfid-explicit-panel-close');
+      if (explicitClose) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        const panel = close.closest<HTMLElement>('.bfid-recon-panel,.bfid-layer-menu,.bfid-import-panel');
+        const panel = explicitClose.closest<HTMLElement>('.bfid-recon-panel,.bfid-import-panel');
         if (panel) closePanel(panel);
-        syncBackdrop();
         return;
       }
 
-      const button = target.closest('.bfid-recon-button,.bfid-layer-button,.bfid-import-button');
+      const button = target.closest('.bfid-recon-button,.bfid-import-button');
       if (!button) return;
 
       const spec = specForButton(button);
@@ -278,10 +267,7 @@ export function installExplicitMapPanels(): void {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (panel.hidden) openPanel(control, panel, spec);
-      else {
-        closePanel(panel);
-        syncBackdrop();
-      }
+      else closePanel(panel);
     },
     true
   );
@@ -293,20 +279,14 @@ export function installExplicitMapPanels(): void {
     }
   });
 
-  const observer = new MutationObserver(queueSync);
-  observer.observe(document.documentElement, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ['hidden']
-  });
-
   window.addEventListener('resize', () => {
     for (const panel of visiblePanels()) {
       const spec = specForPanel(panel);
       if (!spec) continue;
-      const control = findControl(spec, panel);
+      const home = panelHomes.get(panel);
+      const control = home?.control ?? document.querySelector<HTMLElement>(`.${spec.controlClass}`);
       if (!control) continue;
+
       if (isMobileViewport() && panel.parentElement !== document.body) {
         if (!panelHomes.has(panel)) panelHomes.set(panel, { control, nextSibling: panel.nextSibling });
         panel.classList.add('bfid-explicit-map-panel');
