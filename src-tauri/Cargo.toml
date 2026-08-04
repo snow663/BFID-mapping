@@ -1,6 +1,6 @@
 [package]
 name = "bfid-mapping"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first BFID field mapping"
 authors = ["BFID Mapping contributors"]
 edition = "2021"
