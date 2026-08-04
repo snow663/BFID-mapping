@@ -1,4 +1,5 @@
 import { Map as MapLibreMap } from 'maplibre-gl';
+import { installLayerMenuBehavior } from './installLayerMenuBehavior';
 
 const PATCH_FLAG = '__bfidRoadLabelOrderingInstalled';
 const REFERENCE_LAYER_IDS = [
@@ -19,6 +20,8 @@ function restoreReferenceOrder(map: MapLibreMap): void {
 }
 
 export function installRoadLabelOrderingPatch(): void {
+  installLayerMenuBehavior();
+
   const prototype = MapLibreMap.prototype as any;
   if (Object.prototype.hasOwnProperty.call(prototype, PATCH_FLAG)) return;
   prototype[PATCH_FLAG] = true;
