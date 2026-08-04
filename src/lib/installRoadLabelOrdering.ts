@@ -23,6 +23,26 @@ export function installRoadLabelOrderingPatch(): void {
   if (Object.prototype.hasOwnProperty.call(prototype, PATCH_FLAG)) return;
   prototype[PATCH_FLAG] = true;
 
+  const originalSetLayoutProperty = prototype.setLayoutProperty as (
+    id: string,
+    name: string,
+    value: unknown,
+    options?: unknown
+  ) => MapLibreMap;
+  prototype.setLayoutProperty = function guardedSetLayoutProperty(
+    this: MapLibreMap,
+    id: string,
+    name: string,
+    value: unknown,
+    options?: unknown
+  ): MapLibreMap {
+    if (this.getLayer(id)) {
+      const current = this.getLayoutProperty(id, name);
+      if (current === value) return this;
+    }
+    return originalSetLayoutProperty.call(this, id, name, value, options);
+  };
+
   const originalAddLayer = prototype.addLayer as (...args: any[]) => MapLibreMap;
   prototype.addLayer = function patchedAddLayer(this: MapLibreMap, ...args: any[]): MapLibreMap {
     const result = originalAddLayer.apply(this, args);
