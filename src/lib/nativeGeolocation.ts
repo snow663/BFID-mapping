@@ -1,3 +1,7 @@
+import { installIrrigationReconPatch } from './installIrrigationRecon';
+import { installReferenceOverlayPatch } from './installReferenceOverlays';
+import { installRoadLabelOrderingPatch } from './installRoadLabelOrdering';
+
 type NativeGeolocationApi = typeof import('@tauri-apps/plugin-geolocation');
 
 type PendingWatch = {
@@ -189,4 +193,9 @@ export function installNativeGeolocationBridge(): void {
   globalState[INSTALL_FLAG] = true;
 }
 
+// These MapLibre prototype patches must exist before Svelte creates the map.
+// The heavier field-assistant DOM patches still load after the interface mounts.
+installReferenceOverlayPatch();
+installRoadLabelOrderingPatch();
+installIrrigationReconPatch();
 installNativeGeolocationBridge();
