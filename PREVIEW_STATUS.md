@@ -2,8 +2,8 @@
 
 Status: failed
 
-Build: failure
+Build: success
 
-Deploy: skipped
+Deploy: cancelled
 
-Run: https://github.com/snow663/BFID-mapping/actions/runs/30909024293
+Run: https://github.com/snow663/BFID-mapping/actions/runs/30909391069
