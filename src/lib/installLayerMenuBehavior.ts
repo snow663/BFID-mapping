@@ -193,7 +193,7 @@ function synchronizeControls(): void {
 }
 
 export function installLayerMenuBehavior(): void {
-  const globalState = window as GlobalState;
+  const globalState = window as unknown as GlobalState;
   if (globalState[PATCH_FLAG]) return;
   globalState[PATCH_FLAG] = true;
 
