@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: android-apk
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   NDK_VERSION: 28.2.13676358
@@ -201,4 +201,4 @@ jobs:
             });
 
 # Application target: c6930c539024a02ab8b58879b684d94fc6dc5c40
-# Trigger: semantic-versioning-v0.2.4-layer-control-3
+# Trigger: semantic-versioning-v0.2.4-layer-control-final
