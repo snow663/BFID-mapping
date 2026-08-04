@@ -2,7 +2,7 @@ import { Map as MapLibreMap, type IControl } from 'maplibre-gl';
 
 const PATCH_FLAG = '__bfidReferenceOverlayPatchInstalled';
 const MAP_FLAG = '__bfidReferenceOverlaysScheduled';
-const STORAGE_KEY = 'bfid-map-layer-visibility-v1';
+const STORAGE_KEY = 'bfid-map-layer-visibility-v2';
 const STYLE_ID = 'bfid-layer-menu-styles';
 
 const SD_ROADS_SERVICE =
@@ -12,28 +12,50 @@ const SD_CITIES_SERVICE =
 const USGS_NHD_SERVICE =
   'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer';
 
+const ROAD_TILES = `${SD_ROADS_SERVICE}/tile/{z}/{y}/{x}`;
+const HYDROGRAPHY_TILES =
+  `${USGS_NHD_SERVICE}/export?bbox={bbox-epsg-3857}` +
+  '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
+  '&format=png32&transparent=true&layers=show:2,4,6,7,9,10,12&f=image';
+const PLACE_TILES =
+  `${SD_CITIES_SERVICE}/export?bbox={bbox-epsg-3857}` +
+  '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
+  '&format=png32&transparent=true&layers=show:0&f=image';
+
 type LayerKey = 'project' | 'structures' | 'builder' | 'roads' | 'hydrography' | 'places';
 type LayerVisibility = Record<LayerKey, boolean>;
-type GeometryKind = 'line' | 'polygon' | 'point';
-
-type LabelLayerSpec = {
-  id: number;
-  geometry: GeometryKind;
-  minScale: number;
-  maxScale: number;
-};
-
-type ArcGisLayerInfo = {
-  displayField?: string;
-  drawingInfo?: { labelingInfo?: Record<string, unknown>[] };
-};
 
 type ReferenceOverlay = {
   sourceId: string;
   layerId: string;
   tiles: string;
   attribution: string;
+  maxzoom: number;
 };
+
+const overlays: ReferenceOverlay[] = [
+  {
+    sourceId: 'reference-hydrography',
+    layerId: 'reference-hydrography',
+    tiles: HYDROGRAPHY_TILES,
+    attribution: 'USGS National Hydrography Dataset',
+    maxzoom: 20
+  },
+  {
+    sourceId: 'reference-road-labels',
+    layerId: 'reference-road-labels',
+    tiles: ROAD_TILES,
+    attribution: 'South Dakota DOT / SD BIT',
+    maxzoom: 17
+  },
+  {
+    sourceId: 'reference-place-labels',
+    layerId: 'reference-place-labels',
+    tiles: PLACE_TILES,
+    attribution: 'South Dakota BIT',
+    maxzoom: 20
+  }
+];
 
 const layerGroups: Record<LayerKey, readonly string[]> = {
   project: [
@@ -44,12 +66,13 @@ const layerGroups: Record<LayerKey, readonly string[]> = {
     'segments-seasonal',
     'segments-foot-only',
     'segments-likely',
-    'segments-selected'
+    'segments-selected',
+    'segments-labels'
   ],
-  structures: ['structures-circle'],
+  structures: ['structures-circle', 'structures-labels'],
   builder: ['builder-track-casing', 'builder-track-line'],
   roads: ['reference-road-labels'],
-  hydrography: ['reference-hydrography'],
+  hydrography: ['reference-hydrography', 'usgs-irrigation-reference-labels'],
   places: ['reference-place-labels']
 };
 
@@ -63,15 +86,13 @@ const defaultVisibility: LayerVisibility = {
 };
 
 const menuOptions: Array<{ key: LayerKey; label: string; detail: string }> = [
-  { key: 'project', label: 'Mapped roads and canals', detail: 'Permanent BFID lines you create or import' },
-  { key: 'structures', label: 'Structures and points', detail: 'Checks, boxes, gates, crossings and drop-ins' },
-  { key: 'builder', label: 'Active recording line', detail: 'Yellow road-building trace while recording' },
-  { key: 'roads', label: 'Road names only', detail: 'Major names first; local road names appear when zoomed in' },
-  { key: 'hydrography', label: 'Water names only', detail: 'Major names first; local water names appear when zoomed in' },
-  { key: 'places', label: 'Place names only', detail: 'Town and community names without boundary linework' }
+  { key: 'project', label: 'Mapped BFID lines and names', detail: 'Canals, laterals, drains, pipelines and access roads stored in the project' },
+  { key: 'structures', label: 'Structures and names', detail: 'Checks, boxes, gates, crossings and drop-ins' },
+  { key: 'builder', label: 'Active recording line', detail: 'Current road-building or work trace' },
+  { key: 'roads', label: 'Roads and road names', detail: 'South Dakota DOT road overlay; local names appear when zoomed in' },
+  { key: 'hydrography', label: 'Water lines and names', detail: 'USGS streams, canals, ditches, reservoirs and named water features' },
+  { key: 'places', label: 'Town and place names', detail: 'South Dakota cities and communities' }
 ];
-
-const overlayPromise = buildOverlays();
 
 function loadVisibility(): LayerVisibility {
   try {
@@ -107,206 +128,135 @@ function applyVisibility(map: MapLibreMap, visibility: LayerVisibility): void {
   for (const key of Object.keys(layerGroups) as LayerKey[]) {
     setGroupVisibility(map, key, visibility[key]);
   }
+  syncIrrigationLabelVisibility(map);
 }
 
-function transparentRenderer(geometry: GeometryKind): Record<string, unknown> {
-  if (geometry === 'polygon') {
-    return {
-      type: 'simple',
-      symbol: {
-        type: 'esriSFS',
-        style: 'esriSFSNull',
-        color: [0, 0, 0, 0],
-        outline: { type: 'esriSLS', style: 'esriSLSNull', color: [0, 0, 0, 0], width: 0 }
+function addOperationalLabels(map: MapLibreMap): void {
+  if (map.getSource('segments') && !map.getLayer('segments-labels')) {
+    map.addLayer({
+      id: 'segments-labels',
+      type: 'symbol',
+      source: 'segments',
+      minzoom: 9.5,
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['coalesce', ['get', 'name'], ''],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9.5, 10, 13, 13, 17, 16],
+        'symbol-spacing': 260,
+        'text-padding': 4,
+        'text-max-angle': 40,
+        'text-keep-upright': true,
+        'text-letter-spacing': 0.02,
+        'text-allow-overlap': false
+      },
+      paint: {
+        'text-color': '#fff4bd',
+        'text-halo-color': 'rgba(4, 12, 8, 0.98)',
+        'text-halo-width': 2.2,
+        'text-halo-blur': 0.4
       }
-    };
+    } as any);
   }
 
-  if (geometry === 'point') {
-    return {
-      type: 'simple',
-      symbol: {
-        type: 'esriSMS',
-        style: 'esriSMSCircle',
-        color: [0, 0, 0, 0],
-        size: 0,
-        outline: { color: [0, 0, 0, 0], width: 0 }
+  if (map.getSource('structures') && !map.getLayer('structures-labels')) {
+    map.addLayer({
+      id: 'structures-labels',
+      type: 'symbol',
+      source: 'structures',
+      minzoom: 12,
+      layout: {
+        'text-field': ['coalesce', ['get', 'name'], ''],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 10, 16, 14],
+        'text-anchor': 'top',
+        'text-offset': [0, 0.9],
+        'text-padding': 3,
+        'text-allow-overlap': false
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(4, 12, 8, 0.98)',
+        'text-halo-width': 2
       }
-    };
+    } as any);
   }
-
-  return {
-    type: 'simple',
-    symbol: { type: 'esriSLS', style: 'esriSLSNull', color: [0, 0, 0, 0], width: 0 }
-  };
 }
 
-function textSymbol(color: [number, number, number, number]): Record<string, unknown> {
-  return {
-    type: 'esriTS',
-    color,
-    haloColor: [9, 18, 13, 235],
-    haloSize: 1.4,
-    horizontalAlignment: 'center',
-    verticalAlignment: 'baseline',
-    rightToLeft: false,
-    angle: 0,
-    xoffset: 0,
-    yoffset: 0,
-    kerning: true,
-    font: {
-      family: 'Arial',
-      size: 11,
-      style: 'normal',
-      weight: 'bold',
-      decoration: 'none'
+function addIrrigationReferenceLabels(map: MapLibreMap): void {
+  if (!map.getSource('usgs-irrigation-reference') || map.getLayer('usgs-irrigation-reference-labels')) return;
+
+  map.addLayer({
+    id: 'usgs-irrigation-reference-labels',
+    type: 'symbol',
+    source: 'usgs-irrigation-reference',
+    minzoom: 10.5,
+    layout: {
+      'symbol-placement': 'line',
+      'text-field': [
+        'coalesce',
+        ['get', 'GNIS_NAME'],
+        ['get', 'GNIS_Name'],
+        ['get', 'name'],
+        ''
+      ],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 10.5, 10, 15, 14],
+      'symbol-spacing': 300,
+      'text-padding': 4,
+      'text-max-angle': 40,
+      'text-keep-upright': true,
+      'text-allow-overlap': false
+    },
+    paint: {
+      'text-color': '#a9efff',
+      'text-halo-color': 'rgba(3, 14, 18, 0.98)',
+      'text-halo-width': 2.2
     }
-  };
+  } as any);
+
+  syncIrrigationLabelVisibility(map);
 }
 
-function defaultPlacement(geometry: GeometryKind): string {
-  if (geometry === 'line') return 'esriServerLinePlacementCenterAlong';
-  if (geometry === 'polygon') return 'esriServerPolygonPlacementAlwaysHorizontal';
-  return 'esriServerPointLabelPlacementAboveCenter';
-}
-
-async function getLayerInfo(serviceUrl: string, id: number): Promise<ArcGisLayerInfo> {
-  const response = await fetch(`${serviceUrl}/${id}?f=json`);
-  if (!response.ok) throw new Error(`Label metadata ${response.status}`);
-  return (await response.json()) as ArcGisLayerInfo;
-}
-
-function normalizedLabelingInfo(
-  info: ArcGisLayerInfo,
-  spec: LabelLayerSpec,
-  color: [number, number, number, number]
-): Record<string, unknown>[] {
-  const original = info.drawingInfo?.labelingInfo ?? [];
-  const source = original.length
-    ? original
-    : [
-        {
-          labelExpression: info.displayField ? `[${info.displayField}]` : '',
-          labelPlacement: defaultPlacement(spec.geometry)
-        }
-      ];
-
-  return source
-    .filter((entry) => Boolean(entry.labelExpression || (entry.labelExpressionInfo as any)?.expression))
-    .map((entry) => ({
-      ...entry,
-      minScale: spec.minScale,
-      maxScale: spec.maxScale,
-      repeatLabel: false,
-      symbol: textSymbol(color)
-    }));
-}
-
-async function labelOnlyExportTiles(
-  serviceUrl: string,
-  specs: LabelLayerSpec[],
-  color: [number, number, number, number]
-): Promise<string> {
-  const layers = await Promise.all(
-    specs.map(async (spec) => {
-      const info = await getLayerInfo(serviceUrl, spec.id);
-      return {
-        id: spec.id,
-        source: { type: 'mapLayer', mapLayerId: spec.id },
-        minScale: spec.minScale,
-        maxScale: spec.maxScale,
-        drawingInfo: {
-          renderer: transparentRenderer(spec.geometry),
-          showLabels: true,
-          labelingInfo: normalizedLabelingInfo(info, spec, color)
-        }
-      };
-    })
-  );
-
-  return (
-    `${serviceUrl}/export?bbox={bbox-epsg-3857}` +
-    '&bboxSR=3857&imageSR=3857&size=256,256&dpi=96' +
-    '&format=png32&transparent=true' +
-    `&dynamicLayers=${encodeURIComponent(JSON.stringify(layers))}` +
-    '&f=image'
+function syncIrrigationLabelVisibility(map: MapLibreMap): void {
+  if (!map.getLayer('usgs-irrigation-reference-labels')) return;
+  const lineVisibility = map.getLayer('usgs-irrigation-reference-line')
+    ? map.getLayoutProperty('usgs-irrigation-reference-line', 'visibility')
+    : 'visible';
+  const hydroVisible = loadVisibility().hydrography;
+  map.setLayoutProperty(
+    'usgs-irrigation-reference-labels',
+    'visibility',
+    hydroVisible && lineVisibility !== 'none' ? 'visible' : 'none'
   );
 }
 
-async function buildOverlays(): Promise<ReferenceOverlay[]> {
-  const [roads, water, places] = await Promise.all([
-    labelOnlyExportTiles(
-      SD_ROADS_SERVICE,
-      [
-        { id: 0, geometry: 'line', minScale: 2500000, maxScale: 0 },
-        { id: 1, geometry: 'line', minScale: 750000, maxScale: 0 },
-        { id: 2, geometry: 'line', minScale: 100000, maxScale: 0 }
-      ],
-      [245, 247, 245, 255]
-    ),
-    labelOnlyExportTiles(
-      USGS_NHD_SERVICE,
-      [
-        { id: 4, geometry: 'line', minScale: 1000000, maxScale: 80000 },
-        { id: 7, geometry: 'polygon', minScale: 1000000, maxScale: 80000 },
-        { id: 10, geometry: 'polygon', minScale: 1000000, maxScale: 80000 },
-        { id: 2, geometry: 'line', minScale: 120000, maxScale: 0 },
-        { id: 6, geometry: 'line', minScale: 120000, maxScale: 0 },
-        { id: 9, geometry: 'polygon', minScale: 120000, maxScale: 0 },
-        { id: 12, geometry: 'polygon', minScale: 120000, maxScale: 0 }
-      ],
-      [188, 232, 255, 255]
-    ),
-    labelOnlyExportTiles(
-      SD_CITIES_SERVICE,
-      [{ id: 0, geometry: 'point', minScale: 3000000, maxScale: 0 }],
-      [255, 239, 178, 255]
-    )
-  ]);
+function addReferenceOverlays(map: MapLibreMap): void {
+  const beforeId = map.getLayer('segments-casing') ? 'segments-casing' : undefined;
 
-  return [
-    {
-      sourceId: 'reference-hydrography',
-      layerId: 'reference-hydrography',
-      tiles: water,
-      attribution: 'USGS National Hydrography Dataset'
-    },
-    {
-      sourceId: 'reference-road-labels',
-      layerId: 'reference-road-labels',
-      tiles: roads,
-      attribution: 'South Dakota DOT / SD BIT'
-    },
-    {
-      sourceId: 'reference-place-labels',
-      layerId: 'reference-place-labels',
-      tiles: places,
-      attribution: 'South Dakota BIT'
-    }
-  ];
-}
-
-async function addReferenceOverlays(map: MapLibreMap): Promise<void> {
-  const overlays = await overlayPromise;
   for (const overlay of overlays) {
-    if (!map.getSource(overlay.sourceId)) {
-      map.addSource(overlay.sourceId, {
-        type: 'raster',
-        tiles: [overlay.tiles],
-        tileSize: 256,
-        minzoom: 0,
-        maxzoom: 20,
-        attribution: overlay.attribution
-      });
-    }
+    try {
+      if (!map.getSource(overlay.sourceId)) {
+        map.addSource(overlay.sourceId, {
+          type: 'raster',
+          tiles: [overlay.tiles],
+          tileSize: 256,
+          minzoom: 0,
+          maxzoom: overlay.maxzoom,
+          attribution: overlay.attribution
+        });
+      }
 
-    if (!map.getLayer(overlay.layerId)) {
-      map.addLayer({
-        id: overlay.layerId,
-        type: 'raster',
-        source: overlay.sourceId,
-        paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
-      });
+      if (!map.getLayer(overlay.layerId)) {
+        map.addLayer(
+          {
+            id: overlay.layerId,
+            type: 'raster',
+            source: overlay.sourceId,
+            paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
+          },
+          beforeId
+        );
+      }
+    } catch (error) {
+      console.warn(`Could not add ${overlay.layerId}`, error);
     }
   }
 }
@@ -329,13 +279,15 @@ function ensureMenuStyles(): void {
       position: absolute;
       top: 0;
       right: calc(100% + 7px);
-      width: min(270px, calc(100vw - 92px));
+      width: min(290px, calc(100vw - 92px));
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
       display: grid;
       gap: 8px;
       padding: 12px;
       border: 1px solid #557565;
       border-radius: 9px;
-      background: rgba(7, 22, 16, 0.97);
+      background: rgba(7, 22, 16, 0.98);
       color: #edf4ef;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
       text-align: left;
@@ -455,7 +407,7 @@ class LayerMenuControl implements IControl {
 
     const note = document.createElement('div');
     note.className = 'bfid-layer-note';
-    note.textContent = 'All names use the same fixed-size type. Additional local names appear only as the map is zoomed in.';
+    note.textContent = 'BFID names come from the local project. Public road and water names come from South Dakota and USGS services.';
     panel.append(note);
 
     button.addEventListener('click', () => {
@@ -479,6 +431,33 @@ class LayerMenuControl implements IControl {
   }
 }
 
+function initializeMapNames(map: MapLibreMap): void {
+  addReferenceOverlays(map);
+  addOperationalLabels(map);
+  addIrrigationReferenceLabels(map);
+
+  const ensureDynamicLabels = (): void => {
+    try {
+      addOperationalLabels(map);
+      addIrrigationReferenceLabels(map);
+      applyVisibility(map, loadVisibility());
+    } catch (error) {
+      console.warn('Could not refresh map-name layers', error);
+    }
+  };
+
+  map.on('sourcedata', ensureDynamicLabels);
+  map.on('styledata', ensureDynamicLabels);
+  map.on('idle', () => syncIrrigationLabelVisibility(map));
+  map.once('remove', () => {
+    map.off('sourcedata', ensureDynamicLabels);
+    map.off('styledata', ensureDynamicLabels);
+  });
+
+  map.addControl(new LayerMenuControl(), 'top-right');
+  applyVisibility(map, loadVisibility());
+}
+
 export function installReferenceOverlayPatch(): void {
   const prototype = MapLibreMap.prototype as any;
   if (Object.prototype.hasOwnProperty.call(prototype, PATCH_FLAG)) return;
@@ -491,15 +470,11 @@ export function installReferenceOverlayPatch(): void {
       mapWithFlag[MAP_FLAG] = true;
       this.once('load', () => {
         window.setTimeout(() => {
-          void (async () => {
-            try {
-              await addReferenceOverlays(this);
-              this.addControl(new LayerMenuControl(), 'top-right');
-              applyVisibility(this, loadVisibility());
-            } catch (error) {
-              console.warn('Could not add standardized map names or layer menu', error);
-            }
-          })();
+          try {
+            initializeMapNames(this);
+          } catch (error) {
+            console.warn('Could not add map names or layer menu', error);
+          }
         }, 0);
       });
     }
