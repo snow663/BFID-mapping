@@ -198,5 +198,5 @@ jobs:
               sha
             });
 
-# Application target: 332c056261d9d4f19bdf6260257af183e3e66a65
-# Trigger: semantic-versioning-v0.2.1-labels-4
+# Application target: ecb0c33f3bf974520faed9216325c88f8b2e5992
+# Trigger: semantic-versioning-v0.2.2-layer-menu-1
