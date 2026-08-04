@@ -1,10 +1,14 @@
 # Android APK Build Status
 
-- Result: **success**
+- Result: **cancelled**
+- Version: `v0.2.0`
+- Android version code: `2000`
 - Application branch: `agent/initial-local-first-mapping-app`
-- Source commit: `f24a36eefa81769ffc36b31d4b404ac6f4967267`
-- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/30850634728
-- Finished: 2026-08-03 20:37:53 UTC
-- APK bytes: 237066707
-- SHA-256: `7ed70bc0e45a5e5a29da49f5b40d5ef8014bdf2cb79e93d6af8efc7f4f95e309`
-- Release tag: `android-latest`
+- Source commit: `6b26e4898b883af17d9b4aca082048c0667e4a64`
+- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/30873453749
+- Finished: 2026-08-04 03:00:49 UTC
+
+## Build log tail
+```text
+Android build did not start or no log was produced.
+```
