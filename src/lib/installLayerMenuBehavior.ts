@@ -2,7 +2,8 @@ const PATCH_FLAG = '__bfidLayerMenuBehaviorInstalled';
 const STYLE_ID = 'bfid-layer-menu-behavior-styles';
 const REFERENCE_OPTION_ID = 'bfid-canal-ditch-reference-option';
 const REFERENCE_INPUT_ID = 'bfid-canal-ditch-reference-toggle';
-const KEEP_OPEN_MILLISECONDS = 1200;
+const CONTROL_RETRY_DELAY_MS = 100;
+const CONTROL_RETRY_LIMIT = 150;
 
 type GlobalState = Window & Record<string, unknown>;
 
@@ -20,43 +21,49 @@ function ensureStyles(): void {
   document.head.append(style);
 }
 
-function keepPanelOpen(panel: HTMLElement, button: HTMLButtonElement, until: number): void {
-  if (performance.now() > until || !panel.hidden) return;
-  panel.hidden = false;
-  button.setAttribute('aria-expanded', 'true');
-}
-
 function installPanelInteractionGuard(panel: HTMLElement, button: HTMLButtonElement): void {
   if (panel.dataset.bfidInteractionGuard === 'true') return;
   panel.dataset.bfidInteractionGuard = 'true';
 
-  let keepOpenUntil = 0;
-  const markInternalInteraction = (event: Event): void => {
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest('.bfid-explicit-panel-close')) {
-      keepOpenUntil = 0;
-      return;
-    }
-    keepOpenUntil = performance.now() + KEEP_OPEN_MILLISECONDS;
+  let interactionGeneration = 0;
+
+  const cancelKeepOpen = (): void => {
+    interactionGeneration += 1;
   };
 
-  panel.addEventListener('pointerdown', markInternalInteraction, true);
-  panel.addEventListener('touchstart', markInternalInteraction, true);
-  panel.addEventListener('mousedown', markInternalInteraction, true);
-
-  for (const eventName of ['click', 'dblclick', 'pointerup', 'touchend', 'change']) {
-    panel.addEventListener(eventName, (event) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest('.bfid-explicit-panel-close')) event.stopPropagation();
-    });
-  }
-
-  const observer = new MutationObserver(() => {
-    if (panel.hidden && performance.now() <= keepOpenUntil) {
-      queueMicrotask(() => keepPanelOpen(panel, button, keepOpenUntil));
+  const scheduleKeepOpen = (): void => {
+    const generation = ++interactionGeneration;
+    for (const delay of [0, 80, 250]) {
+      window.setTimeout(() => {
+        if (generation !== interactionGeneration || !panel.isConnected) return;
+        if (panel.hidden) panel.hidden = false;
+        button.setAttribute('aria-expanded', 'true');
+      }, delay);
     }
-  });
-  observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+  };
+
+  const handleInternalEvent = (event: Event): void => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.bfid-explicit-panel-close')) {
+      cancelKeepOpen();
+      return;
+    }
+    event.stopPropagation();
+    scheduleKeepOpen();
+  };
+
+  for (const eventName of [
+    'pointerdown',
+    'pointerup',
+    'touchstart',
+    'touchend',
+    'mousedown',
+    'mouseup',
+    'click',
+    'change'
+  ]) {
+    panel.addEventListener(eventName, handleInternalEvent);
+  }
 }
 
 function renameWaterOverlay(panel: HTMLElement): HTMLElement | null {
@@ -65,9 +72,10 @@ function renameWaterOverlay(panel: HTMLElement): HTMLElement | null {
     if (!title) continue;
     if (!/water lines|hydrography|water overlay/i.test(title.textContent ?? '')) continue;
 
-    title.textContent = 'Water overlay';
+    if (title.textContent !== 'Water overlay') title.textContent = 'Water overlay';
     const detail = option.querySelector<HTMLElement>('small');
-    if (detail) detail.textContent = 'USGS streams, waterbodies and available water-feature names';
+    const detailText = 'USGS streams, waterbodies and available water-feature names';
+    if (detail && detail.textContent !== detailText) detail.textContent = detailText;
     return option;
   }
   return null;
@@ -103,13 +111,13 @@ function createReferenceOption(
     reconToggle.checked = input.checked;
     reconToggle.dispatchEvent(new Event('change', { bubbles: true }));
 
-    // Some Android WebViews route a checkbox tap through the underlying map
-    // control after the panel is moved to document.body. Reassert the intended
-    // open state after the checkbox and MapLibre style updates complete.
-    queueMicrotask(() => {
-      layerPanel.hidden = false;
-      layerButton.setAttribute('aria-expanded', 'true');
-    });
+    for (const delay of [0, 80, 250]) {
+      window.setTimeout(() => {
+        if (!layerPanel.isConnected) return;
+        if (layerPanel.hidden) layerPanel.hidden = false;
+        layerButton.setAttribute('aria-expanded', 'true');
+      }, delay);
+    }
   });
 
   reconToggle.addEventListener('change', () => {
@@ -132,37 +140,40 @@ function simplifyReferenceAction(reconControl: HTMLElement, reconToggle: HTMLInp
   const selectedBox = panel?.querySelector<HTMLElement>('.bfid-recon-selected');
   if (!button || !panel || !selectedBox) return;
 
-  button.textContent = 'Add line';
-  button.title = 'Add the selected public canal or ditch reference to the BFID project';
-  button.setAttribute('aria-label', button.title);
+  const buttonTitle = 'Add the selected public canal or ditch reference to the BFID project';
+  if (button.textContent !== 'Add line') button.textContent = 'Add line';
+  if (button.title !== buttonTitle) button.title = buttonTitle;
+  if (button.getAttribute('aria-label') !== buttonTitle) button.setAttribute('aria-label', buttonTitle);
 
   const heading = panel.querySelector<HTMLElement>('h3');
-  if (heading) heading.textContent = 'Add selected reference line';
-
-  const source = panel.querySelector<HTMLElement>('.bfid-recon-source');
-  if (source) {
-    source.textContent =
-      'The blue line is public USGS reference geometry. Adding it creates a local BFID project line that can be named, classified and field-verified.';
+  if (heading && heading.textContent !== 'Add selected reference line') {
+    heading.textContent = 'Add selected reference line';
   }
 
+  const source = panel.querySelector<HTMLElement>('.bfid-recon-source');
+  const sourceText =
+    'The blue line is public USGS reference geometry. Adding it creates a local BFID project line that can be named, classified and field-verified.';
+  if (source && source.textContent !== sourceText) source.textContent = sourceText;
+
   const toggleLabel = reconToggle.closest<HTMLElement>('.bfid-recon-toggle');
-  if (toggleLabel) toggleLabel.hidden = true;
+  if (toggleLabel && !toggleLabel.hidden) toggleLabel.hidden = true;
 
   for (const headingElement of panel.querySelectorAll<HTMLElement>('h4')) {
     const text = headingElement.textContent ?? '';
     if (/Belle Fourche Project scale|Local project database/i.test(text)) {
-      headingElement.hidden = true;
+      if (!headingElement.hidden) headingElement.hidden = true;
       const following = headingElement.nextElementSibling;
-      if (following instanceof HTMLElement) following.hidden = true;
-    } else if (/Selected reference/i.test(text)) {
+      if (following instanceof HTMLElement && !following.hidden) following.hidden = true;
+    } else if (/Selected reference/i.test(text) && text !== 'Selected public reference') {
       headingElement.textContent = 'Selected public reference';
     }
   }
 
   const updateButtonVisibility = (): void => {
     const noSelection = /No line selected/i.test(selectedBox.textContent ?? '');
-    button.hidden = noSelection || !reconToggle.checked;
-    if (button.hidden && !panel.hidden) {
+    const shouldHide = noSelection || !reconToggle.checked;
+    if (button.hidden !== shouldHide) button.hidden = shouldHide;
+    if (shouldHide && !panel.hidden) {
       panel.hidden = true;
       button.setAttribute('aria-expanded', 'false');
     }
@@ -177,19 +188,25 @@ function simplifyReferenceAction(reconControl: HTMLElement, reconToggle: HTMLInp
   }
 }
 
-function synchronizeControls(): void {
+function synchronizeControls(): boolean {
   const layerControl = document.querySelector<HTMLElement>('.bfid-layer-control');
-  const layerPanel = layerControl?.querySelector<HTMLElement>('.bfid-layer-menu');
+  const layerPanel = document.querySelector<HTMLElement>('.bfid-layer-menu');
   const layerButton = layerControl?.querySelector<HTMLButtonElement>('.bfid-layer-button');
   const reconControl = document.querySelector<HTMLElement>('.bfid-recon-control');
   const reconToggle = reconControl?.querySelector<HTMLInputElement>('.bfid-recon-toggle input[type="checkbox"]');
 
-  if (!layerControl || !layerPanel || !layerButton || !reconControl || !reconToggle) return;
+  if (!layerControl || !layerPanel || !layerButton || !reconControl || !reconToggle) return false;
 
   installPanelInteractionGuard(layerPanel, layerButton);
   renameWaterOverlay(layerPanel);
   createReferenceOption(layerPanel, reconToggle, layerButton);
   simplifyReferenceAction(reconControl, reconToggle);
+  return true;
+}
+
+function waitForControls(attempt = 0): void {
+  if (synchronizeControls() || attempt >= CONTROL_RETRY_LIMIT) return;
+  window.setTimeout(() => waitForControls(attempt + 1), CONTROL_RETRY_DELAY_MS);
 }
 
 export function installLayerMenuBehavior(): void {
@@ -199,15 +216,11 @@ export function installLayerMenuBehavior(): void {
 
   ensureStyles();
 
-  // Retire the older standalone recon visibility preference. Visibility is
-  // now controlled by the single Layers menu.
   try {
     window.localStorage.setItem('bfid-usgs-irrigation-reference-visible', 'true');
   } catch {
     // Current-session controls still work if localStorage is unavailable.
   }
 
-  synchronizeControls();
-  const observer = new MutationObserver(synchronizeControls);
-  observer.observe(document.documentElement, { subtree: true, childList: true });
+  waitForControls();
 }
