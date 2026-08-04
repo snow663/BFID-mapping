@@ -18,6 +18,7 @@ concurrency:
 env:
   NDK_VERSION: 28.2.13676358
   APP_BRANCH: agent/initial-local-first-mapping-app
+  APP_REF: 7c18ee92d84f829547648225e086bb3f14305835
 
 jobs:
   build-apk:
@@ -26,10 +27,10 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Check out active application branch
+      - name: Check out active application revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.APP_BRANCH }}
+          ref: ${{ env.APP_REF }}
 
       - name: Record source revision and app version
         id: version
@@ -43,6 +44,7 @@ jobs:
 
           test "$APP_VERSION" = "$PACKAGE_VERSION"
           test "$APP_VERSION" = "$CARGO_VERSION"
+          test "$APP_SOURCE_SHA" = "$APP_REF"
 
           echo "APP_SOURCE_SHA=$APP_SOURCE_SHA" >> "$GITHUB_ENV"
           echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
@@ -198,5 +200,5 @@ jobs:
               sha
             });
 
-# Application target: ecb0c33f3bf974520faed9216325c88f8b2e5992
-# Trigger: semantic-versioning-v0.2.2-layer-menu-2
+# Application target: 7c18ee92d84f829547648225e086bb3f14305835
+# Trigger: semantic-versioning-v0.2.2-layer-menu-3
