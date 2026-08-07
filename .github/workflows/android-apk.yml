@@ -18,7 +18,7 @@ concurrency:
 env:
   NDK_VERSION: 28.2.13676358
   APP_BRANCH: agent/initial-local-first-mapping-app
-  APP_REF: c6930c539024a02ab8b58879b684d94fc6dc5c40
+  APP_REF: 982eda40b234f68a427063e62ac3e98c0954d5ec
 
 jobs:
   build-apk:
@@ -200,5 +200,5 @@ jobs:
               sha
             });
 
-# Application target: c6930c539024a02ab8b58879b684d94fc6dc5c40
-# Trigger: semantic-versioning-v0.2.4-layer-control-final
+# Application target: 982eda40b234f68a427063e62ac3e98c0954d5ec
+# Trigger: semantic-versioning-v0.2.4-layer-control-gps-2hz
