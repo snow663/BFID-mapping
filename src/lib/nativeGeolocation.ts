@@ -10,6 +10,7 @@ type PendingWatch = {
 };
 
 const INSTALL_FLAG = '__bfidNativeGeolocationInstalled';
+const NATIVE_WATCH_INTERVAL_MS = 500;
 const watches = new Map<number, PendingWatch>();
 let nextWatchId = 1;
 let nativeApiPromise: Promise<NativeGeolocationApi> | null = null;
@@ -92,7 +93,7 @@ async function ensurePermission(api: NativeGeolocationApi): Promise<void> {
   return permissionPromise;
 }
 
-function optionsFromBrowser(options?: PositionOptions): {
+function currentPositionOptions(options?: PositionOptions): {
   enableHighAccuracy: boolean;
   timeout: number;
   maximumAge: number;
@@ -100,7 +101,24 @@ function optionsFromBrowser(options?: PositionOptions): {
   return {
     enableHighAccuracy: options?.enableHighAccuracy ?? true,
     timeout: Number.isFinite(options?.timeout) ? Number(options?.timeout) : 15000,
-    maximumAge: Number.isFinite(options?.maximumAge) ? Number(options?.maximumAge) : 1000
+    maximumAge: Number.isFinite(options?.maximumAge) ? Number(options?.maximumAge) : 0
+  };
+}
+
+function watchPositionOptions(options?: PositionOptions): {
+  enableHighAccuracy: boolean;
+  timeout: number;
+  maximumAge: number;
+} {
+  return {
+    // Android's Tauri geolocation implementation currently feeds `timeout`
+    // directly into LocationRequest.Builder as both the requested and minimum
+    // update interval. Browser callers use timeout as an error deadline, so
+    // forwarding a value such as 15 seconds makes a field track extremely
+    // sparse. Request a fresh high-accuracy fix twice per second instead.
+    enableHighAccuracy: options?.enableHighAccuracy ?? true,
+    timeout: NATIVE_WATCH_INTERVAL_MS,
+    maximumAge: 0
   };
 }
 
@@ -111,7 +129,7 @@ function nativeGeolocation(): Geolocation {
         try {
           const api = await loadNativeApi();
           await ensurePermission(api);
-          success(browserPosition(await api.getCurrentPosition(optionsFromBrowser(options))));
+          success(browserPosition(await api.getCurrentPosition(currentPositionOptions(options))));
         } catch (error) {
           failure?.(error && typeof error === 'object' && 'code' in error
             ? error as GeolocationPositionError
@@ -131,7 +149,7 @@ function nativeGeolocation(): Geolocation {
           await ensurePermission(api);
           if (pending.cancelled) return;
 
-          const nativeId = await api.watchPosition(optionsFromBrowser(options), (position, error) => {
+          const nativeId = await api.watchPosition(watchPositionOptions(options), (position, error) => {
             if (pending.cancelled) return;
             if (error) {
               failure?.(browserError(error));
