@@ -4,10 +4,10 @@
 - Version: `v0.2.4`
 - Android version code: `2004`
 - Application branch: `agent/initial-local-first-mapping-app`
-- Source commit: `c6930c539024a02ab8b58879b684d94fc6dc5c40`
-- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/30936824602
-- Finished: 2026-08-04 18:13:55 UTC
+- Source commit: `982eda40b234f68a427063e62ac3e98c0954d5ec`
+- Workflow run: https://github.com/snow663/BFID-mapping/actions/runs/31187670165
+- Finished: 2026-08-07 14:34:21 UTC
 - APK file: `BFID-Mapping-v0.2.4.apk`
-- APK bytes: 237243903
-- SHA-256: `1720e2f56681c00149fc8173bb92144a4ffc7310e2a37e7cb7e3e445214d65f1`
+- APK bytes: 237178887
+- SHA-256: `a4a902e31a09979956e38cb30909cdc888a82b4bbc826a24a331c5ba3832a300`
 - Release tag: `v0.2.4`
