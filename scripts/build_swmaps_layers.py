@@ -16,8 +16,7 @@ from PIL import Image
 # Intentionally modest overlap/margin so adjacent blocks can be added later.
 WEST, SOUTH, EAST, NORTH = -103.72, 44.66, -103.50, 44.81
 MIN_ZOOM = 10
-MAX_ZOOM = 18
-BLOCK = 8
+BLOCK = 15  # 3840 px blocks stay inside the source services' practical export limits.
 TILE_SIZE = 256
 ORIGIN = 20037508.342789244
 OUT = Path('swmaps_layers')
@@ -28,6 +27,7 @@ class Layer:
     filename: str
     name: str
     endpoint: str
+    max_zoom: int
     image_format: str
     mbtiles_format: str
     attribution: str
@@ -39,24 +39,27 @@ LAYERS = [
         'BFID_Block01_NAIP_Aerial_z10-18.mbtiles',
         'BFID Block 01 - NAIP Natural Color',
         'https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage',
+        18,
         'jpg',
         'jpg',
         'USDA NAIP / USGS The National Map',
         band_ids='0,1,2',
     ),
     Layer(
-        'BFID_Block01_3DEP_Hillshade_z10-18.mbtiles',
+        'BFID_Block01_3DEP_Hillshade_z10-17.mbtiles',
         'BFID Block 01 - 3DEP Multidirectional Hillshade',
         'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage',
+        17,
         'jpg',
         'jpg',
         'USGS 3D Elevation Program (3DEP)',
         rendering_rule=json.dumps({'rasterFunction': 'Hillshade Multidirectional'}),
     ),
     Layer(
-        'BFID_Block01_3DEP_Slope_z10-18.mbtiles',
+        'BFID_Block01_3DEP_Slope_z10-17.mbtiles',
         'BFID Block 01 - 3DEP Slope Map',
         'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage',
+        17,
         'png32',
         'png',
         'USGS 3D Elevation Program (3DEP)',
@@ -108,7 +111,7 @@ def init_db(path: Path, layer: Layer) -> sqlite3.Connection:
         'bounds': f'{WEST},{SOUTH},{EAST},{NORTH}',
         'center': f'{center_lon},{center_lat},15',
         'minzoom': str(MIN_ZOOM),
-        'maxzoom': str(MAX_ZOOM),
+        'maxzoom': str(layer.max_zoom),
         'attribution': layer.attribution,
     }
     con.executemany('INSERT INTO metadata(name,value) VALUES (?,?)', metadata.items())
@@ -131,7 +134,7 @@ def export_image_bytes(layer: Layer, bbox: tuple[float, float, float, float], wi
     if layer.band_ids:
         params['bandIds'] = layer.band_ids
     url = layer.endpoint + '?' + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={'User-Agent': 'BFID-SWMaps-Offline-Builder/1.1'})
+    req = urllib.request.Request(url, headers={'User-Agent': 'BFID-SWMaps-Offline-Builder/1.2'})
     last: Exception | None = None
     for attempt in range(6):
         try:
@@ -195,7 +198,7 @@ def build(layer: Layer) -> tuple[Path, int]:
     con = init_db(path, layer)
     total = 0
     try:
-        for z in range(MIN_ZOOM, MAX_ZOOM + 1):
+        for z in range(MIN_ZOOM, layer.max_zoom + 1):
             xmin, xmax, ymin, ymax = tile_range(z)
             count = (xmax-xmin+1) * (ymax-ymin+1)
             print(f'{layer.name}: zoom {z}: {count} tiles', flush=True)
@@ -225,7 +228,8 @@ def main() -> int:
         '',
         'This is the first high-resolution block and can be supplemented by neighboring MBTiles later.',
         f'Coverage: west {WEST}, south {SOUTH}, east {EAST}, north {NORTH}',
-        f'Zoom levels: {MIN_ZOOM}-{MAX_ZOOM}',
+        'NAIP zoom levels: 10-18 (native-useful aerial detail).',
+        '3DEP zoom levels: 10-17 (native-useful 1 m terrain detail).',
         '',
         'Files:',
     ]
