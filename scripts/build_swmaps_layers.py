@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
 import math
-import os
 import sqlite3
-import sys
 import time
 import urllib.parse
 import urllib.request
@@ -13,9 +12,11 @@ from pathlib import Path
 
 from PIL import Image
 
-WEST, SOUTH, EAST, NORTH = -103.95, 44.555, -103.315, 44.768
+# Block 01: screenshot-defined first field block east of Belle Fourche Reservoir.
+# Intentionally modest overlap/margin so adjacent blocks can be added later.
+WEST, SOUTH, EAST, NORTH = -103.72, 44.66, -103.50, 44.81
 MIN_ZOOM = 10
-MAX_ZOOM = 16
+MAX_ZOOM = 18
 BLOCK = 8
 TILE_SIZE = 256
 ORIGIN = 20037508.342789244
@@ -26,39 +27,40 @@ OUT.mkdir(exist_ok=True)
 class Layer:
     filename: str
     name: str
-    url: str
-    wms_layer: str
+    endpoint: str
     image_format: str
     mbtiles_format: str
     attribution: str
+    rendering_rule: str | None = None
+    band_ids: str | None = None
 
 LAYERS = [
     Layer(
-        'BFID_NAIP_Aerial.mbtiles',
-        'BFID NAIP Natural Color',
-        'https://imagery.nationalmap.gov/arcgis/services/USGSNAIPImagery/ImageServer/WMSServer',
-        'USGSNAIPImagery:NaturalColor',
-        'image/jpeg',
+        'BFID_Block01_NAIP_Aerial_z10-18.mbtiles',
+        'BFID Block 01 - NAIP Natural Color',
+        'https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage',
         'jpg',
-        'USGS / USDA National Agriculture Imagery Program',
+        'jpg',
+        'USDA NAIP / USGS The National Map',
+        band_ids='0,1,2',
     ),
     Layer(
-        'BFID_3DEP_Hillshade.mbtiles',
-        'BFID 3DEP Multidirectional Hillshade',
-        'https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WMSServer',
-        '3DEPElevation:Hillshade Multidirectional',
-        'image/jpeg',
+        'BFID_Block01_3DEP_Hillshade_z10-18.mbtiles',
+        'BFID Block 01 - 3DEP Multidirectional Hillshade',
+        'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage',
+        'jpg',
         'jpg',
         'USGS 3D Elevation Program (3DEP)',
+        rendering_rule=json.dumps({'rasterFunction': 'Hillshade Multidirectional'}),
     ),
     Layer(
-        'BFID_3DEP_Slope.mbtiles',
-        'BFID 3DEP Slope Map',
-        'https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WMSServer',
-        '3DEPElevation:Slope Map',
-        'image/png',
+        'BFID_Block01_3DEP_Slope_z10-18.mbtiles',
+        'BFID Block 01 - 3DEP Slope Map',
+        'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage',
+        'png32',
         'png',
         'USGS 3D Elevation Program (3DEP)',
+        rendering_rule=json.dumps({'rasterFunction': 'Slope Map'}),
     ),
 ]
 
@@ -101,10 +103,10 @@ def init_db(path: Path, layer: Layer) -> sqlite3.Connection:
         'name': layer.name,
         'type': 'baselayer',
         'version': '1.0',
-        'description': f'{layer.name}; BFID field coverage',
+        'description': f'{layer.name}; BFID field coverage block 01',
         'format': layer.mbtiles_format,
         'bounds': f'{WEST},{SOUTH},{EAST},{NORTH}',
-        'center': f'{center_lon},{center_lat},14',
+        'center': f'{center_lon},{center_lat},15',
         'minzoom': str(MIN_ZOOM),
         'maxzoom': str(MAX_ZOOM),
         'attribution': layer.attribution,
@@ -114,41 +116,41 @@ def init_db(path: Path, layer: Layer) -> sqlite3.Connection:
     return con
 
 
-def wms_bytes(layer: Layer, bbox: tuple[float, float, float, float], width: int, height: int) -> bytes:
+def export_image_bytes(layer: Layer, bbox: tuple[float, float, float, float], width: int, height: int) -> bytes:
     params = {
-        'SERVICE': 'WMS',
-        'VERSION': '1.3.0',
-        'REQUEST': 'GetMap',
-        'LAYERS': layer.wms_layer,
-        'STYLES': '',
-        'CRS': 'EPSG:3857',
-        'BBOX': ','.join(f'{v:.6f}' for v in bbox),
-        'WIDTH': str(width),
-        'HEIGHT': str(height),
-        'FORMAT': layer.image_format,
-        'TRANSPARENT': 'FALSE',
+        'bbox': ','.join(f'{v:.6f}' for v in bbox),
+        'bboxSR': '3857',
+        'imageSR': '3857',
+        'size': f'{width},{height}',
+        'format': layer.image_format,
+        'interpolation': 'RSP_BilinearInterpolation',
+        'f': 'image',
     }
-    url = layer.url + '?' + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={'User-Agent': 'BFID-SWMaps-Offline-Builder/1.0'})
+    if layer.rendering_rule:
+        params['renderingRule'] = layer.rendering_rule
+    if layer.band_ids:
+        params['bandIds'] = layer.band_ids
+    url = layer.endpoint + '?' + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={'User-Agent': 'BFID-SWMaps-Offline-Builder/1.1'})
     last: Exception | None = None
-    for attempt in range(5):
+    for attempt in range(6):
         try:
-            with urllib.request.urlopen(req, timeout=90) as response:
+            with urllib.request.urlopen(req, timeout=120) as response:
                 data = response.read()
                 ctype = response.headers.get_content_type()
                 if not ctype.startswith('image/'):
-                    raise RuntimeError(f'Unexpected WMS response {ctype}: {data[:180]!r}')
+                    raise RuntimeError(f'Unexpected ArcGIS response {ctype}: {data[:200]!r}')
                 return data
         except Exception as exc:
             last = exc
-            time.sleep(2 ** attempt)
-    raise RuntimeError(f'WMS request failed after retries: {last}')
+            time.sleep(min(30, 2 ** attempt))
+    raise RuntimeError(f'Image export failed after retries: {last}')
 
 
 def save_tile(con: sqlite3.Connection, layer: Layer, z: int, x: int, y: int, image: Image.Image) -> None:
     buf = io.BytesIO()
     if layer.mbtiles_format == 'jpg':
-        image.convert('RGB').save(buf, format='JPEG', quality=84, optimize=False)
+        image.convert('RGB').save(buf, format='JPEG', quality=90, subsampling=0, optimize=False)
     else:
         image.convert('RGBA').save(buf, format='PNG', compress_level=6)
     tms_y = (2 ** z - 1) - y
@@ -162,7 +164,7 @@ def fetch_block(con: sqlite3.Connection, layer: Layer, z: int, bx: int, by: int,
     xmin, _, _, ymax = tile_bounds(bx, by, z)
     _, ymin, xmax, _ = tile_bounds(bx + nx - 1, by + ny - 1, z)
     try:
-        data = wms_bytes(layer, (xmin, ymin, xmax, ymax), nx * TILE_SIZE, ny * TILE_SIZE)
+        data = export_image_bytes(layer, (xmin, ymin, xmax, ymax), nx * TILE_SIZE, ny * TILE_SIZE)
         with Image.open(io.BytesIO(data)) as src:
             img = src.convert('RGBA' if layer.mbtiles_format == 'png' else 'RGB')
             if img.size != (nx * TILE_SIZE, ny * TILE_SIZE):
@@ -176,16 +178,14 @@ def fetch_block(con: sqlite3.Connection, layer: Layer, z: int, bx: int, by: int,
         if nx == 1 and ny == 1:
             raise
         print(f'Block {z}/{bx}/{by} {nx}x{ny} failed ({exc}); splitting', flush=True)
-        sx = max(1, nx // 2)
-        sy = max(1, ny // 2)
-        parts = []
-        for oy in (0, sy):
-            if oy >= ny:
-                continue
-            for ox in (0, sx):
-                if ox >= nx:
-                    continue
-                parts.append((bx+ox, by+oy, min(sx, nx-ox), min(sy, ny-oy)))
+        if nx >= ny and nx > 1:
+            first = nx // 2
+            parts = [(bx, by, first, ny), (bx + first, by, nx - first, ny)]
+        elif ny > 1:
+            first = ny // 2
+            parts = [(bx, by, nx, first), (bx, by + first, nx, ny - first)]
+        else:
+            raise
         for px, py, pnx, pny in parts:
             fetch_block(con, layer, z, px, py, pnx, pny)
 
@@ -213,16 +213,17 @@ def build(layer: Layer) -> tuple[Path, int]:
 
 
 def main() -> int:
-    built = []
+    built: list[tuple[Path, int]] = []
     for layer in LAYERS:
         path, count = build(layer)
         built.append((path, count))
         print(f'Built {path} ({path.stat().st_size/1024/1024:.1f} MiB, {count} tiles)', flush=True)
 
-    readme = OUT / 'README_SWMaps.txt'
+    readme = OUT / 'README_SWMaps_Block01.txt'
     lines = [
-        'BFID SW Maps offline raster package',
+        'BFID SW Maps offline raster package - Block 01',
         '',
+        'This is the first high-resolution block and can be supplemented by neighboring MBTiles later.',
         f'Coverage: west {WEST}, south {SOUTH}, east {EAST}, north {NORTH}',
         f'Zoom levels: {MIN_ZOOM}-{MAX_ZOOM}',
         '',
@@ -233,15 +234,16 @@ def main() -> int:
     lines += [
         '',
         'SW Maps Android:',
-        '1. Copy the .mbtiles files to SW_Maps/Maps/mbtiles on the device, or use the current Import Layer tool.',
-        '2. Open your project -> Layers -> Add -> Tiles / MBTiles.',
-        '3. Add NAIP as the aerial base. Add either 3DEP hillshade or slope above it and adjust transparency as desired.',
+        '1. Copy the .mbtiles files to the device or memory card.',
+        '2. In SW Maps, add/import each MBTiles file as a tile layer.',
+        '3. Use NAIP as the aerial base layer.',
+        '4. Put 3DEP hillshade or slope above NAIP and adjust opacity as desired.',
         '',
         'Sources:',
-        '- NAIP natural-color aerial imagery: USGS/USDA National Agriculture Imagery Program service.',
-        '- Terrain: USGS 3D Elevation Program (3DEP) dynamic elevation service.',
+        '- NAIP natural-color aerial imagery: USDA NAIP latest-imagery ImageServer.',
+        '- Terrain: USGS 3D Elevation Program (3DEP) elevation ImageServer.',
         '',
-        'These files are for field navigation and work tracking, not cadastral or survey boundary determination.',
+        'These layers are for field navigation and work tracking, not cadastral or survey boundary determination.',
     ]
     readme.write_text('\n'.join(lines), encoding='utf-8')
     return 0
