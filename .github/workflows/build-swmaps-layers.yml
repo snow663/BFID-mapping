@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/build-swmaps-layers.yml
+      - scripts/build_swmaps_layers.py
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,14 +24,14 @@ jobs:
           python-version: '3.12'
       - name: Install raster tooling
         run: python -m pip install --disable-pip-version-check pillow
-      - name: Build SW Maps MBTiles
+      - name: Build high-resolution SW Maps MBTiles
         run: python scripts/build_swmaps_layers.py
       - name: Show package sizes
         run: du -h swmaps_layers/*
-      - name: Upload SW Maps package
+      - name: Upload SW Maps block 01
         uses: actions/upload-artifact@v4
         with:
-          name: BFID-SWMaps-NAIP-3DEP
+          name: BFID-SWMaps-Block01-NAIP-3DEP-z18
           path: swmaps_layers/*
           if-no-files-found: error
           compression-level: 0
@@ -52,7 +53,7 @@ jobs:
             const path = 'SWMAPS_LAYER_STATUS.md';
             const ok = process.env.BUILD_RESULT === 'success';
             const body = ok
-              ? `# SW Maps layer package\n\nStatus: ready\n\nRun: ${context.runId}\n\nArtifact: BFID-SWMaps-NAIP-3DEP\n`
+              ? `# SW Maps layer package\n\nStatus: ready\n\nRun: ${context.runId}\n\nArtifact: BFID-SWMaps-Block01-NAIP-3DEP-z18\n`
               : `# SW Maps layer package\n\nStatus: failed\n\nBuild: ${process.env.BUILD_RESULT}\n\nRun: ${context.runId}\n`;
             let sha;
             try {
