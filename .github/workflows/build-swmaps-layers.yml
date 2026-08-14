@@ -1,0 +1,72 @@
+name: Build SW Maps NAIP and 3DEP layers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-swmaps-layers.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install raster tooling
+        run: python -m pip install --disable-pip-version-check pillow
+      - name: Build SW Maps MBTiles
+        run: python scripts/build_swmaps_layers.py
+      - name: Show package sizes
+        run: du -h swmaps_layers/*
+      - name: Upload SW Maps package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BFID-SWMaps-NAIP-3DEP
+          path: swmaps_layers/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  report:
+    if: always()
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Write layer build status
+        uses: actions/github-script@v7
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const path = 'SWMAPS_LAYER_STATUS.md';
+            const ok = process.env.BUILD_RESULT === 'success';
+            const body = ok
+              ? `# SW Maps layer package\n\nStatus: ready\n\nRun: ${context.runId}\n\nArtifact: BFID-SWMaps-NAIP-3DEP\n`
+              : `# SW Maps layer package\n\nStatus: failed\n\nBuild: ${process.env.BUILD_RESULT}\n\nRun: ${context.runId}\n`;
+            let sha;
+            try {
+              const existing = await github.rest.repos.getContent({ owner, repo, path, ref: 'main' });
+              if (!Array.isArray(existing.data)) sha = existing.data.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            await github.rest.repos.createOrUpdateFileContents({
+              owner,
+              repo,
+              path,
+              branch: 'main',
+              message: 'Update SW Maps layer build status',
+              content: Buffer.from(body).toString('base64'),
+              sha
+            });
