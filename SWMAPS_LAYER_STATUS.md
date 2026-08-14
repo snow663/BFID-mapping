@@ -2,6 +2,6 @@
 
 Status: ready
 
-Run: 31812171961
+Run: 31811331647
 
-Artifact: BFID-SWMaps-Block01-NAIP-3DEP-z18
+Artifact: BFID-SWMaps-NAIP-3DEP
