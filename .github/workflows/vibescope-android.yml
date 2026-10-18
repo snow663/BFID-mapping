@@ -1,0 +1,31 @@
+name: VibeScope Android debug APK
+on:
+  push:
+    branches: ['feature/vibescope-android-apk']
+  workflow_dispatch:
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand experimental vibration analyzer project
+        run: |
+          mkdir -p vibroscope-project
+          base64 --decode vibescope-source.b64 | tar -xz -C vibroscope-project
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 35 SDK
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Compile APK
+        run: cd vibroscope-project && gradle --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibeScope-Android-debug
+          path: vibroscope-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
